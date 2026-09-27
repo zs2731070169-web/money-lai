@@ -184,6 +184,18 @@ describe('合成参数快照（调音必改快照，防漂移）', () => {
         fadeInSeconds: 2,
         fadeOutSeconds: 1.5,
       },
+      ascensionVoice: {
+        breathHighpassHertz: 500,
+        breathLowpassHertz: 3000,
+        breathAttackMilliseconds: 260,
+        breathDecayMilliseconds: 900,
+        breathPeakGain: 0.055,
+        arpeggioMidiNotes: [76, 72, 69, 67, 64],
+        arpeggioFirstNoteDelayMilliseconds: 180,
+        arpeggioNoteIntervalMilliseconds: 110,
+        arpeggioNoteDurationSeconds: 1.15,
+        arpeggioPeakGain: 0.085,
+      },
     });
   });
 });

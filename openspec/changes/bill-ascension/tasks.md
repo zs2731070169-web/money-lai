@@ -4,13 +4,13 @@
 
 ## 1. 纯函数层
 
-- [ ] 1.1 新建 `worry/scatter-state.ts` 放飞状态机（idle/grasped/released/dropped、上拖阈值判定、无计时门槛）；验证：全转换单测（含原位松手取消、阈值边界、多次按下复位）
-- [ ] 1.2 心事钞计数语义纯函数（¥0 计张不计额、面额分配序号不消耗、图鉴跳过判定）；验证：对照 cash-drawing 例外条款的单测
-- [ ] 1.3 放飞视觉化映射纯函数（金额→张数 clamp(6,36)、心事钞在场清单→延时淡出参数）；验证：边界单测（0/小额/巨额/多心事）
+- [x] 1.1 新建 `worry/scatter-state.ts` 放飞状态机（idle/grasped/released/dropped、上拖阈值判定、无计时门槛）；验证：全转换单测（含原位松手取消、阈值边界、多次按下复位）
+- [x] 1.2 心事钞计数语义纯函数（¥0 计张不计额、面额分配序号不消耗、图鉴跳过判定）；验证：对照 cash-drawing 例外条款的单测
+- [x] 3.1 放飞视觉化映射纯函数（金额→张数 clamp(6,36)、心事钞在场清单→延时淡出参数）；验证：边界单测（0/小额/巨额/多心事）
 
 ## 2. 平台适配
 
-- [ ] 2.1 `PlatformAdapter.presentTextInput` 接口 + web 实现覆盖层（确认/取消、30 字上限）；验证：假适配器注入的单测（两路径）+ import-audit 保持通过
+- [x] 2.1 `PlatformAdapter.presentTextInput` 接口 + web 实现覆盖层（确认/取消、30 字上限）；验证：假适配器注入的单测（两路径）+ import-audit 保持通过
 
 ## 3. 视觉
 
@@ -21,7 +21,7 @@
 
 ## 4. 音频
 
-- [ ] 4.1 `AUDIO_SYNTHESIS_PARAMETERS.ascensionVoice`（气流+五声琶音）+ engine `playAscensionVoice`；验证：回归镜像同步 + 离线渲染断言（峰值 ≤0.9、无 NaN、时长 1.5-2.5s、无循环段）
+- [x] 4.1 `AUDIO_SYNTHESIS_PARAMETERS.ascensionVoice`（气流+五声琶音）+ engine `playAscensionVoice`；验证：回归镜像同步 + 离线渲染断言（峰值 ≤0.9、无 NaN、时长 1.5-2.5s、无循环段）
 
 ## 5. 编排接线
 

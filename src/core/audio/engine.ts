@@ -2,6 +2,7 @@ import { createSeededRandomNumberGenerator } from '../utility/deterministic-rand
 import { GenerativePianoPlanner, createGenerativePianoPlanner } from './bgm-planner';
 import { createBgmReverbChain, scheduleGenerativePianoNote } from './bgm-player';
 import { AUDIO_SYNTHESIS_PARAMETERS } from './parameters';
+import { scheduleAscensionVoice } from './ascension-voice';
 import { schedulePaperGrabRustle } from './paper-slide';
 import { WalletClackVoiceHandles, scheduleLeatherFoldVoice } from './wallet-clack';
 import {
@@ -326,6 +327,20 @@ export class AudioEngine {
   }
 
   /** 里程碑木质 tok 音（每 100 张，cash-drawing 规格） */
+  /** 放飞声部（worry-release 规格）：轻气流 + 五声琶音一次成段，无持续声床 */
+  playAscensionVoice(): void {
+    if (!this.soundEnabled) return;
+    const audioContext = this.ensureSoundPipeline();
+    if (!audioContext || !this.busInputNode) return;
+    scheduleAscensionVoice(
+      audioContext,
+      this.busInputNode,
+      this.getSharedNoiseBuffer(audioContext),
+      AUDIO_SYNTHESIS_PARAMETERS.ascensionVoice,
+      audioContext.currentTime,
+    );
+  }
+
   playMilestoneTok(): void {
     if (!this.soundEnabled) return;
     const audioContext = this.ensureSoundPipeline();

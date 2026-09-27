@@ -83,6 +83,25 @@ export interface AudioSynthesisParameters {
     fadeInSeconds: number;
     fadeOutSeconds: number;
   };
+  ascensionVoice: {
+    /** 气流层高通/低通（宽带气流，渐入无瞬态） */
+    breathHighpassHertz: number;
+    breathLowpassHertz: number;
+    /** 气流渐入与衰减（毫秒；总时长 = attack + decay） */
+    breathAttackMilliseconds: number;
+    breathDecayMilliseconds: number;
+    /** 气流峰值增益 */
+    breathPeakGain: number;
+    /** 五声琶音（MIDI，下行收束；C 大调五声血统与 BGM 同源） */
+    arpeggioMidiNotes: number[];
+    /** 首音延迟与逐音间隔（毫秒） */
+    arpeggioFirstNoteDelayMilliseconds: number;
+    arpeggioNoteIntervalMilliseconds: number;
+    /** 单音时长（秒，指数衰减尾巴） */
+    arpeggioNoteDurationSeconds: number;
+    /** 琶音单音峰值增益 */
+    arpeggioPeakGain: number;
+  };
 }
 
 export const AUDIO_SYNTHESIS_PARAMETERS: AudioSynthesisParameters = {
@@ -159,5 +178,17 @@ export const AUDIO_SYNTHESIS_PARAMETERS: AudioSynthesisParameters = {
     bgmBusGain: 0.095,
     fadeInSeconds: 2,
     fadeOutSeconds: 1.5,
+  },
+  ascensionVoice: {
+    breathHighpassHertz: 500,
+    breathLowpassHertz: 3000,
+    breathAttackMilliseconds: 260,
+    breathDecayMilliseconds: 900,
+    breathPeakGain: 0.055,
+    arpeggioMidiNotes: [76, 72, 69, 67, 64],
+    arpeggioFirstNoteDelayMilliseconds: 180,
+    arpeggioNoteIntervalMilliseconds: 110,
+    arpeggioNoteDurationSeconds: 1.15,
+    arpeggioPeakGain: 0.085,
   },
 };

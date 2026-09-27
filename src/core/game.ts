@@ -92,7 +92,11 @@ import {
 } from './render/wallet-painter';
 import { billRectAtDrawRatio } from './render/bill-geometry';
 import { FlyingBillView, paintActiveBill, paintFlyingBill } from './render/bill-painter';
-import { advanceFlyingBills } from './render/flying-bills';
+import {
+  ASCEND_DRIFT_X_MAX_PIXELS_PER_SECOND,
+  ASCEND_VELOCITY_UP_PIXELS_PER_SECOND,
+  advanceFlyingBills,
+} from './render/flying-bills';
 import { billStackBillHeight, billStackBillWidth } from './render/bill-geometry';
 import { paintGraspedBillStack, paintWorryBillFace } from './render/worry-bill-painter';
 import { advanceScatterSession, createInitialScatterState } from './worry/scatter-state';
@@ -989,13 +993,15 @@ export class Game {
     );
     const billWidth = billStackBillWidth(layout.walletRect) * 0.9;
     const billHeight = billStackBillHeight(layout.walletRect) * 0.9;
-    // 普通升腾纸钞：以张序派生确定性的散布/漂移/初速（同余额重放飞观感一致）
+    // 普通升腾纸钞：以张序派生确定性的散布/漂移/初速（同余额重放飞观感一致），
+    // 初速与漂移幅度从升腾运动快照常量派生（调参唯一落点）
     for (let billIndex = 0; billIndex < ascensionPlan.scatterBillCount; billIndex += 1) {
       this.spawnAscensionBill(
         releaseX + (((billIndex * 37) % 11) - 5) * 9,
         releaseY + (((billIndex * 23) % 7) - 3) * 8,
-        ((billIndex % 7) - 3) * 13 + (billIndex % 3) * 6,
-        200 + (billIndex % 5) * 30,
+        (ASCEND_DRIFT_X_MAX_PIXELS_PER_SECOND * (((billIndex % 7) - 3) / 3) +
+          (billIndex % 3) * 6),
+        ASCEND_VELOCITY_UP_PIXELS_PER_SECOND - 40 + (billIndex % 5) * 20,
         0,
         undefined,
         billWidth,
@@ -1009,7 +1015,7 @@ export class Game {
         releaseX + (worryIndex - 0.5) * 26,
         releaseY + 6,
         (worryIndex % 2 === 0 ? -1 : 1) * 14,
-        230,
+        ASCEND_VELOCITY_UP_PIXELS_PER_SECOND - 30,
         WORRY_BILL_FADE_EXTRA_DELAY_SECONDS * 1000,
         worryBill.text,
         billWidth,

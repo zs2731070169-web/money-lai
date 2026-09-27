@@ -87,7 +87,6 @@ function createLaunchHarness(audioContext: AudioContext | null) {
     },
     createAudioContext: () => audioContext,
     onAudioInterruption() {},
-    presentTextInput: () => Promise.resolve(null),
     triggerHapticImpact() {},
     readPersistentValue: () => null,
     writePersistentValue() {},

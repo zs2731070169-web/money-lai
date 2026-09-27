@@ -92,22 +92,6 @@ import {
 } from './render/wallet-painter';
 import { billRectAtDrawRatio } from './render/bill-geometry';
 import { FlyingBillView, paintActiveBill, paintFlyingBill } from './render/bill-painter';
-import {
-  ASCEND_DRIFT_X_MAX_PIXELS_PER_SECOND,
-  ASCEND_VELOCITY_UP_PIXELS_PER_SECOND,
-  advanceFlyingBills,
-} from './render/flying-bills';
-import { billStackBillHeight, billStackBillWidth } from './render/bill-geometry';
-import { paintGraspedBillStack, paintWorryBillFace } from './render/worry-bill-painter';
-import { advanceScatterSession, createInitialScatterState } from './worry/scatter-state';
-import {
-  WORRY_BILL_FADE_EXTRA_DELAY_SECONDS,
-  WORRY_TEXT_MAX_LENGTH,
-  WorryBill,
-  applyWorryBillCompletion,
-  isValidWorryText,
-  resolveAscensionBillPlan,
-} from './worry/worry-bill';
 import { paintAmountOdometer } from './render/odometer-painter';
 
 /**
@@ -117,14 +101,6 @@ import { paintAmountOdometer } from './render/odometer-painter';
 
 /** follow-through 飘落时长（ms） */
 const BILL_COMPLETING_DURATION_MS = 480;
-/** 心事钞 denomination id（面额例外：¥0、不入图鉴、不消耗面额分配序号） */
-const WORRY_DENOMINATION_ID = 'worry-bill';
-/** 长按纸堆唤出心事输入的静置时长（毫秒） */
-const WORRY_INPUT_LONG_PRESS_MS = 500;
-/** 长按候选位移容差（逻辑像素）：超出即视为拖动、取消候选 */
-const WORRY_INPUT_PRESS_SLOP_PX = 7;
-/** 放飞后轻文案的静默拍延迟（毫秒，约等于里程表滚降完成时长） */
-const SCATTER_ZERO_MESSAGE_DELAY_MS = 1_100;
 
 /** 回弹收回时长（ms） */
 const BILL_RECYCLING_DURATION_MS = 260;
@@ -136,6 +112,10 @@ const TOAST_QUEUED_STARTED_AT_MS = -1;
 const STREAK_WINDOW_MS = 2500;
 
 /** follow-through 飘落时长与行程（减弱动态时用短时长快速淡出） */
+const FLYING_BILL_DURATION_MS = 850;
+const FLYING_BILL_REDUCED_DURATION_MS = 220;
+const FLYING_BILL_RISE_PIXELS = 74;
+const FLYING_BILL_ALPHA_CUTOFF = 0.02;
 
 /** 里程碑蜜金闪色时长（ms） */
 const MILESTONE_FLASH_DURATION_MS = 600;
@@ -157,19 +137,6 @@ export interface GameDependencies {
 /** 缓出三次：抽出/收回动画的减速曲线 */
 function easeOutCubic(progress: number): number {
   return 1 - Math.pow(1 - progress, 3);
-}
-
-/** 里程表命中区（放飞发起区）：以锚点为中心的数字带（看到的=可按的） */
-function isPointInsideOdometerHitArea(
-  point: Point2D,
-  odometerCenterX: number,
-  odometerTopY: number,
-): boolean {
-  return (
-    Math.abs(point.x - odometerCenterX) <= 170 &&
-    point.y >= odometerTopY - 12 &&
-    point.y <= odometerTopY + 72
-  );
 }
 
 /** 缓入三次：抽屉滑出的加速离开曲线 */
@@ -220,30 +187,7 @@ export class Game {
   private streakCount = 0;
   private lastDrawCompletedAtMs = 0;
 
-  private gestureKind: 'flap' | 'bill' | 'bill-candidate' | 'scatter' | null = null;
-  /** 放飞状态机（worry-release）：里程表凝沓跟手与松手结算 */
-  private scatterState = createInitialScatterState();
-  /** 心事输入长按候选：按下于纸堆且静置中（0.5s 唤出；明确拖动即取消） */
-  private worryInputPressCandidate: {
-    positionX: number;
-    positionY: number;
-    startedAtMs: number;
-  } | null = null;
-  /** 心事输入覆盖层在场（输入期间主循环暂停交互路由） */
-  private worryInputActive = false;
-  /** 待抽出的心事钞（写下即置位：下一次抓取抽出它；会话内存态绝不落盘） */
-  private pendingWorryBill: WorryBill | null = null;
-  /** 本次抽出中的心事钞（完成结算时消费） */
-  private drawingWorryBill: WorryBill | null = null;
-  /** 已抽出、等待放飞了却的心事钞清单（会话内存态，放飞即清空） */
-  private carriedWorryBills: WorryBill[] = [];
-  /** 凝沓纸沓跟手：目标（指尖）与显示（垂坠缓动）位置 */
-  private graspedStackTargetX = 0;
-  private graspedStackTargetY = 0;
-  private graspedStackDisplayX = 0;
-  private graspedStackDisplayY = 0;
-  /** 放飞后「都过去了」轻文案的入队时刻（静默一拍，等里程表滚降完成） */
-  private zeroMessagePendingAtMs: number | null = null;
+  private gestureKind: 'flap' | 'bill' | 'bill-candidate' | null = null;
   private candidateFlapHit = false;
   private activePointerId: number | null = null;
   private lastPointerPosition: Point2D | null = null;
@@ -340,33 +284,9 @@ export class Game {
       }
       // 多指防护：同一时刻只跟踪一个活跃手势，其他手指的按下/移动全部忽略（防串扰）
       if (this.activePointerId !== null) return;
-      // 心事输入覆盖层在场：输入组件接管交互，主场景路由暂停
-      if (this.worryInputActive) return;
       this.activePointerId = point.pointerId;
       this.tryUnlockAudio();
       const touchPoint: Point2D = { x: point.positionX, y: point.positionY };
-      // 放飞发起：按住金额里程表（会话余额 > 0 才凝沓；0 余额静默无动作）
-      if (
-        this.sessionProgress.sessionAmount > 0 &&
-        isPointInsideOdometerHitArea(
-          touchPoint,
-          layout.odometerAnchor.centerX,
-          layout.odometerAnchor.topY,
-        )
-      ) {
-        const scatterUpdate = advanceScatterSession(this.scatterState, { type: 'press' });
-        if (scatterUpdate.state.phase === 'grasped') {
-          this.scatterState = scatterUpdate.state;
-          this.gestureKind = 'scatter';
-          this.graspedStackTargetX = point.positionX;
-          this.graspedStackTargetY = point.positionY;
-          this.graspedStackDisplayX = point.positionX;
-          this.graspedStackDisplayY = point.positionY;
-          this.lastPointerPosition = { x: point.positionX, y: point.positionY };
-          this.lastPointerTimestampMs = nowMs;
-        }
-        return;
-      }
       // 元进程入口（右上角汉堡图标）：唤出抽屉菜单首屏
       const metaEntryDistance = Math.hypot(
         point.positionX - layout.metaEntryAnchor.centerX,
@@ -402,12 +322,6 @@ export class Game {
       if (cashGrabAllowed) {
         this.gestureKind = 'bill-candidate';
         this.candidateFlapHit = flapHit;
-        // 心事输入长按候选：静置 0.5s 唤出输入；明确拖动即取消（move 路径处理）
-        this.worryInputPressCandidate = {
-          positionX: point.positionX,
-          positionY: point.positionY,
-          startedAtMs: nowMs,
-        };
       } else if (flapHit) {
         this.beginFlapPress();
       }
@@ -429,30 +343,7 @@ export class Game {
       }
       if (point.pointerId !== this.activePointerId) return;
       if (!this.lastPointerPosition || this.gestureKind === null) return;
-      // 放飞凝沓跟手：位移进状态机累计上拖偏移；纸沓目标位置贴指尖
-      if (this.gestureKind === 'scatter') {
-        const scatterUpdate = advanceScatterSession(this.scatterState, {
-          type: 'drag',
-          deltaUpPixels: this.lastPointerPosition.y - point.positionY,
-        });
-        this.scatterState = scatterUpdate.state;
-        this.graspedStackTargetX = point.positionX;
-        this.graspedStackTargetY = point.positionY;
-        this.lastPointerPosition = { x: point.positionX, y: point.positionY };
-        this.lastPointerTimestampMs = nowMs;
-        return;
-      }
       if (this.gestureKind === 'bill-candidate') {
-        // 明确拖动即取消心事输入候选（拖动=抽钞意图，长按=写下意图）
-        if (
-          this.worryInputPressCandidate &&
-          Math.hypot(
-            point.positionX - this.worryInputPressCandidate.positionX,
-            point.positionY - this.worryInputPressCandidate.positionY,
-          ) > WORRY_INPUT_PRESS_SLOP_PX
-        ) {
-          this.worryInputPressCandidate = null;
-        }
         const pendingUpPixels = this.lastPointerPosition.y - point.positionY;
         const pendingHorizontalPixels = Math.abs(point.positionX - this.lastPointerPosition.x);
         const cashIntentPixels = Math.max(
@@ -517,17 +408,6 @@ export class Game {
     }
     this.activePointerId = null;
     this.tryUnlockAudio();
-    if (this.gestureKind === 'scatter') {
-      // 放飞松手结算：高处=放飞（升腾+归零）；原位/拖回=取消（数字恢复）
-      const scatterUpdate = advanceScatterSession(this.scatterState, { type: 'release' });
-      if (scatterUpdate.outcome === 'scatter-released') {
-        this.performAscension(this.graspedStackDisplayX, this.graspedStackDisplayY);
-      }
-      this.scatterState = createInitialScatterState();
-      this.gestureKind = null;
-      this.lastPointerPosition = null;
-      return;
-    }
     if (this.gestureKind === 'flap') {
       const releaseUpdate = advanceWalletFlap(this.flapState, { type: 'release' });
       this.flapState = releaseUpdate.state;
@@ -544,7 +424,6 @@ export class Game {
     }
     this.gestureKind = null;
     this.candidateFlapHit = false;
-    this.worryInputPressCandidate = null;
     this.lastPointerPosition = null;
   }
 
@@ -556,13 +435,9 @@ export class Game {
       this.handleBillDrawCompleted(this.platformAdapter.nowMilliseconds());
     }
     this.gestureKind = 'bill';
-    // 心事钞指定（worry-release）：写下的下一次抓取抽出心事钞——
-    // ¥0 计张不计额、不入图鉴、不消耗确定性面额分配序号
-    this.drawingWorryBill = this.pendingWorryBill;
-    this.pendingWorryBill = null;
-    this.activeDenominationId = this.drawingWorryBill
-      ? WORRY_DENOMINATION_ID
-      : allocateDenominationForDrawIndex(this.persistedState.lifetimeDrawCount);
+    this.activeDenominationId = allocateDenominationForDrawIndex(
+      this.persistedState.lifetimeDrawCount,
+    );
     this.cashSession = grabUpdate.state;
     this.billGrabRustlePlayed = false;
     this.consumeCashEffects(grabUpdate.effects);
@@ -785,48 +660,16 @@ export class Game {
     }
     this.milestoneFlashElapsedMs += deltaMs;
 
-    // 心事输入长按候选：静置约 0.5s 唤出输入（当前手势挂起，输入覆盖层接管交互）
-    if (this.worryInputPressCandidate && this.gestureKind === 'bill-candidate') {
-      const candidate = this.worryInputPressCandidate;
-      const heldStillMs = nowMs - candidate.startedAtMs;
-      const movedBeyondSlop =
-        this.lastPointerPosition !== null &&
-        Math.hypot(
-          this.lastPointerPosition.x - candidate.positionX,
-          this.lastPointerPosition.y - candidate.positionY,
-        ) > WORRY_INPUT_PRESS_SLOP_PX;
-      if (movedBeyondSlop) {
-        this.worryInputPressCandidate = null;
-      } else if (heldStillMs >= WORRY_INPUT_LONG_PRESS_MS) {
-        this.worryInputPressCandidate = null;
-        this.gestureKind = null;
-        this.activePointerId = null;
-        void this.openWorryInput();
-      }
+    const flyingDurationMs = this.reducedMotionEnabled
+      ? FLYING_BILL_REDUCED_DURATION_MS
+      : FLYING_BILL_DURATION_MS;
+    this.flyingBills = this.flyingBills.filter(
+      (flyingBill) => flyingBill.alpha > FLYING_BILL_ALPHA_CUTOFF,
+    );
+    for (const flyingBill of this.flyingBills) {
+      flyingBill.y -= (deltaMs / flyingDurationMs) * FLYING_BILL_RISE_PIXELS;
+      flyingBill.alpha = Math.max(0, flyingBill.alpha - deltaMs / flyingDurationMs);
     }
-
-    // 凝沓纸沓跟手：显示位置向指尖缓动（微垂坠滞后）
-    if (this.scatterState.phase === 'grasped') {
-      const swaySmoothing = Math.min(1, deltaMs / 120);
-      this.graspedStackDisplayX +=
-        (this.graspedStackTargetX - this.graspedStackDisplayX) * swaySmoothing;
-      this.graspedStackDisplayY +=
-        (this.graspedStackTargetY - this.graspedStackDisplayY) * swaySmoothing;
-    }
-
-    // 放飞归零后的静默一拍：轻文案「都过去了」入队（自动淡出，无按钮无庆祝）
-    if (
-      this.zeroMessagePendingAtMs !== null &&
-      this.platformAdapter.nowMilliseconds() >= this.zeroMessagePendingAtMs
-    ) {
-      this.zeroMessagePendingAtMs = null;
-      this.enqueueFloatingToast('都过去了');
-    }
-
-    // 飘落/升腾纸钞推进（纯函数：原 follow-through 行为逐字段不变，升腾为放飞扩展）
-    this.flyingBills = advanceFlyingBills(this.flyingBills, deltaMs, {
-      reducedMotion: this.reducedMotionEnabled,
-    });
 
     this.audioEngine.updateBgm();
 
@@ -868,17 +711,6 @@ export class Game {
 
   /** 一张纸币完成抽出：会话累计 + 元进程评估 + 音画触反馈（核心闭环） */
   private handleBillDrawCompleted(nowMs: number): void {
-    // 心事钞完成抽出（worry-release 规格）：计张不计额、元进程无感——
-    // 不进金额/图鉴/皮肤/成就链路，转入在场清单等待放飞了却
-    if (this.drawingWorryBill) {
-      const worryBill = this.drawingWorryBill;
-      this.drawingWorryBill = null;
-      this.sessionProgress = applyWorryBillCompletion(this.sessionProgress);
-      this.carriedWorryBills.push(worryBill);
-      this.spawnFlyingBill(worryBill.text);
-      this.triggerHaptic('light');
-      return;
-    }
     const denomination = getCashDenominationById(this.activeDenominationId);
     const faceValue = denomination?.faceValue ?? 1;
 
@@ -937,8 +769,8 @@ export class Game {
     }
   }
 
-  /** follow-through 飘落纸币：在抽出完成时刻生成于完整抽出位置；心事钞携带票面文本 */
-  private spawnFlyingBill(worryText?: string): void {
+  /** follow-through 飘落纸币：在抽出完成时刻生成于完整抽出位置 */
+  private spawnFlyingBill(): void {
     const viewport = this.platformAdapter.getLogicalViewportSize();
     const layout = computeSceneLayout(
       viewport.width,
@@ -955,107 +787,10 @@ export class Game {
       height: fullyDrawnRect.height,
       denominationId: this.activeDenominationId,
       billSkinId: this.persistedState.activeBillSkin ?? undefined,
-      worryText,
     });
     if (this.flyingBills.length > 12) {
       this.flyingBills.shift();
     }
-  }
-
-  /** 唤出心事输入（长按纸堆 0.5s）：确认且合法 → 置位待抽心事钞；取消无痕 */
-  private async openWorryInput(): Promise<void> {
-    this.worryInputActive = true;
-    const text = await this.platformAdapter.presentTextInput({
-      placeholder: '写下一件心事，放飞即逝',
-      maxLength: WORRY_TEXT_MAX_LENGTH,
-    });
-    this.worryInputActive = false;
-    if (text !== null && isValidWorryText(text)) {
-      this.pendingWorryBill = { text: text.trim() };
-    }
-  }
-
-  /**
-   * 放飞执行（worry-release「升腾呈现/归零收束」）：
-   * 余额视觉化为升腾纸钞自松手点升腾（心事钞延时多半拍最后淡去）、
-   * 放飞声部+轻触觉、里程表滚动归零、会话清零可续抽、静默一拍后轻文案。
-   */
-  private performAscension(releaseX: number, releaseY: number): void {
-    const ascensionPlan = resolveAscensionBillPlan(
-      this.sessionProgress.sessionAmount,
-      this.carriedWorryBills,
-    );
-    const viewport = this.platformAdapter.getLogicalViewportSize();
-    const layout = computeSceneLayout(
-      viewport.width,
-      viewport.height,
-      this.platformAdapter.getSafeAreaInsets(),
-    );
-    const billWidth = billStackBillWidth(layout.walletRect) * 0.9;
-    const billHeight = billStackBillHeight(layout.walletRect) * 0.9;
-    // 普通升腾纸钞：以张序派生确定性的散布/漂移/初速（同余额重放飞观感一致），
-    // 初速与漂移幅度从升腾运动快照常量派生（调参唯一落点）
-    for (let billIndex = 0; billIndex < ascensionPlan.scatterBillCount; billIndex += 1) {
-      this.spawnAscensionBill(
-        releaseX + (((billIndex * 37) % 11) - 5) * 9,
-        releaseY + (((billIndex * 23) % 7) - 3) * 8,
-        (ASCEND_DRIFT_X_MAX_PIXELS_PER_SECOND * (((billIndex % 7) - 3) / 3) +
-          (billIndex % 3) * 6),
-        ASCEND_VELOCITY_UP_PIXELS_PER_SECOND - 40 + (billIndex % 5) * 20,
-        0,
-        undefined,
-        billWidth,
-        billHeight,
-        `denomination-${[1, 5, 10, 50, 100][billIndex % 5]}`,
-      );
-    }
-    // 心事钞：在场清单逐张升腾、延时多半拍最后淡去（票面带字）
-    this.carriedWorryBills.forEach((worryBill, worryIndex) => {
-      this.spawnAscensionBill(
-        releaseX + (worryIndex - 0.5) * 26,
-        releaseY + 6,
-        (worryIndex % 2 === 0 ? -1 : 1) * 14,
-        ASCEND_VELOCITY_UP_PIXELS_PER_SECOND - 30,
-        WORRY_BILL_FADE_EXTRA_DELAY_SECONDS * 1000,
-        worryBill.text,
-        billWidth,
-        billHeight,
-        WORRY_DENOMINATION_ID,
-      );
-    });
-    this.audioEngine.playAscensionVoice();
-    this.triggerHaptic('light');
-    // 会话清零（里程表滚动下降归零）+ 心事了却 + 静默拍轻文案
-    this.sessionProgress = createInitialSessionProgress();
-    this.odometerState = enqueueAmountOdometerTarget(this.odometerState, 0);
-    this.carriedWorryBills = [];
-    this.zeroMessagePendingAtMs =
-      this.platformAdapter.nowMilliseconds() + SCATTER_ZERO_MESSAGE_DELAY_MS;
-  }
-
-  /** 生成一张升腾纸钞（放飞视觉化；worryText 在场时以心事钞票面呈现） */
-  private spawnAscensionBill(
-    positionX: number,
-    positionY: number,
-    driftXPixelsPerSecond: number,
-    velocityUpPixelsPerSecond: number,
-    fadeDelayMs: number,
-    worryText: string | undefined,
-    billWidth: number,
-    billHeight: number,
-    denominationId: string,
-  ): void {
-    this.flyingBills.push({
-      x: positionX,
-      y: positionY,
-      rotationDegrees: (Math.random() * 2 - 1) * 10,
-      alpha: 1,
-      width: billWidth,
-      height: billHeight,
-      denominationId,
-      ascend: { velocityUpPixelsPerSecond, driftXPixelsPerSecond, fadeDelayMs },
-      worryText,
-    });
   }
 
   private persistMetaProgress(): void {
@@ -1079,10 +814,6 @@ export class Game {
     drawerStage: string | null;
     audioUnlocked: boolean;
     bgmPlaying: boolean;
-    /** worry-release（bill-ascension）：放飞/心事钞冒烟字段 */
-    scatterPhase: string;
-    pendingWorryBillActive: boolean;
-    carriedWorryBillCount: number;
   } {
     return {
       walletOpen: this.flapState.phase === 'open',
@@ -1097,9 +828,6 @@ export class Game {
       drawerStage: this.drawerSession?.stage ?? null,
       audioUnlocked: this.audioEngine.isUnlocked(),
       bgmPlaying: this.audioEngine.isPlayingBgm(),
-      scatterPhase: this.scatterState.phase,
-      pendingWorryBillActive: this.pendingWorryBill !== null,
-      carriedWorryBillCount: this.carriedWorryBills.length,
     };
   }
 
@@ -1254,85 +982,34 @@ export class Game {
       activeSkinId: this.persistedState.activeBillSkin ?? undefined,
     });
 
-    // 纸币：拖拽跟手 / 过阈值完成时自动抽满 / 回收时收回归零；
-    // 心事钞在场（待抽/抽出中）以心事票面呈现（淡字→抽起清晰）
+    // 纸币：拖拽跟手 / 过阈值完成时自动抽满 / 回收时收回归零
     if (this.cashSession.phase !== 'idle') {
-      const activeBillRect = billRectAtDrawRatio(
-        layout.walletRect, layout.walletFoldLineY, this.activeBillRenderRatio,
-      );
-      if (this.drawingWorryBill) {
-        paintWorryBillFace(
-          renderingContext,
-          activeBillRect,
-          this.drawingWorryBill.text,
-          0.3 + 0.7 * this.activeBillRenderRatio,
-        );
-      } else {
-        paintActiveBill(renderingContext, {
-          billRect: activeBillRect,
-          foldLineY: layout.walletFoldLineY,
-          dragVelocityPixelsPerSecond: this.pointerSpeedPixelsPerSecond,
-          denominationId: this.activeDenominationId,
-          billSkinId: this.persistedState.activeBillSkin ?? undefined,
-        });
-      }
-    } else if (this.pendingWorryBill && this.flapState.openProgress >= WALLET_FLAP_OPEN_THRESHOLD) {
-      // 待抽心事钞静置堆顶：淡字票面替换堆顶（看见它，才知道可以抽它）
-      paintWorryBillFace(
-        renderingContext,
-        billRectAtDrawRatio(layout.walletRect, layout.walletFoldLineY, 0),
-        this.pendingWorryBill.text,
-        0.3,
-      );
-    }
-
-    // follow-through 飘落纸币 / 放飞升腾纸钞（心事钞以带字票面呈现）
-    for (const flyingBill of this.flyingBills) {
-      if (flyingBill.worryText) {
-        renderingContext.save();
-        renderingContext.globalAlpha = flyingBill.alpha;
-        renderingContext.translate(flyingBill.x, flyingBill.y);
-        renderingContext.rotate((flyingBill.rotationDegrees * Math.PI) / 180);
-        paintWorryBillFace(
-          renderingContext,
-          {
-            left: -flyingBill.width / 2,
-            top: -flyingBill.height / 2,
-            width: flyingBill.width,
-            height: flyingBill.height,
-          },
-          flyingBill.worryText,
-          1,
-        );
-        renderingContext.restore();
-      } else {
-        paintFlyingBill(renderingContext, flyingBill);
-      }
-    }
-
-    // 金额里程表（唯一主指标；里程碑瞬时蜜金闪色）；
-    // 凝沓跟手期间数字隐去（化作指尖纸沓），取消回落/放飞后恢复
-    if (this.scatterState.phase !== 'grasped') {
-      paintAmountOdometer(renderingContext, this.odometerState, {
-        centerX: layout.odometerAnchor.centerX,
-        topY: layout.odometerAnchor.topY,
-        fontSize: Math.min(56, Math.round(viewport.width * 0.13)),
-        milestoneFlashRatio:
-          this.milestoneFlashElapsedMs < MILESTONE_FLASH_DURATION_MS
-            ? 1 - this.milestoneFlashElapsedMs / MILESTONE_FLASH_DURATION_MS
-            : 0,
+      paintActiveBill(renderingContext, {
+        billRect: billRectAtDrawRatio(
+          layout.walletRect, layout.walletFoldLineY, this.activeBillRenderRatio,
+        ),
+        foldLineY: layout.walletFoldLineY,
+        dragVelocityPixelsPerSecond: this.pointerSpeedPixelsPerSecond,
+        denominationId: this.activeDenominationId,
+        billSkinId: this.persistedState.activeBillSkin ?? undefined,
       });
-    } else {
-      // 指尖纸沓（worry-release「亲手放飞」）：凝在指尖、微垂坠跟手
-      paintGraspedBillStack(
-        renderingContext,
-        this.graspedStackDisplayX,
-        this.graspedStackDisplayY,
-        billStackBillWidth(layout.walletRect) * 0.9,
-        billStackBillHeight(layout.walletRect) * 0.9,
-        0,
-      );
     }
+
+    // follow-through 飘落纸币
+    for (const flyingBill of this.flyingBills) {
+      paintFlyingBill(renderingContext, flyingBill);
+    }
+
+    // 金额里程表（唯一主指标；里程碑瞬时蜜金闪色）
+    paintAmountOdometer(renderingContext, this.odometerState, {
+      centerX: layout.odometerAnchor.centerX,
+      topY: layout.odometerAnchor.topY,
+      fontSize: Math.min(56, Math.round(viewport.width * 0.13)),
+      milestoneFlashRatio:
+        this.milestoneFlashElapsedMs < MILESTONE_FLASH_DURATION_MS
+          ? 1 - this.milestoneFlashElapsedMs / MILESTONE_FLASH_DURATION_MS
+          : 0,
+    });
 
     // 首次抽取引导（一次性，规格：完成首次抽取后不再出现；
     // hints-above-odometer：锚点从钱包口上方移到里程表正上方，避开物理纸币堆叠）

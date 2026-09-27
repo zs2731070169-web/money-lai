@@ -91,7 +91,6 @@ function createHeadlessPlatformAdapter() {
       return null; // 无头环境：音频静默降级路径
     },
     onAudioInterruption() {},
-    presentTextInput: () => Promise.resolve(null),
     triggerHapticImpact(_level: HapticImpactLevel) {},
     readPersistentValue(key) {
       return storage.get(key) ?? null;

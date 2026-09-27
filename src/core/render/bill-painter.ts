@@ -42,7 +42,7 @@ export function paintActiveBill(
   renderingContext.restore();
 }
 
-/** follow-through 飘落中的纸币（松手后上飘淡出）；放飞升腾纸钞复用同一视图（ascend 在场时） */
+/** follow-through 飘落中的纸币（松手后上飘淡出） */
 export interface FlyingBillView {
   x: number;
   y: number;
@@ -53,17 +53,6 @@ export interface FlyingBillView {
   denominationId: string;
   /** 纸纹皮肤 id：飘落票面与抽出票面同色（皮肤一致性） */
   billSkinId?: string;
-  /** 升腾运动参数（worry-release 放飞）：向上初速 + 水平漂移 + 淡出延时；缺省=原上飘淡出 */
-  ascend?: {
-    /** 向上初速（逻辑像素/秒） */
-    velocityUpPixelsPerSecond: number;
-    /** 水平漂移（逻辑像素/秒，正=向右） */
-    driftXPixelsPerSecond: number;
-    /** 淡出启动延时（毫秒）：心事钞延时多半拍由此实现 */
-    fadeDelayMs: number;
-  };
-  /** 心事钞票面文本（仅放飞心事钞在场；随纸钞淡去即弃） */
-  worryText?: string;
 }
 
 export function paintFlyingBill(

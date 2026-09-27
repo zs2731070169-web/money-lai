@@ -50,7 +50,6 @@ function createToastRecordingHarness() {
     },
     createAudioContext: () => null,
     onAudioInterruption() {},
-    presentTextInput: () => Promise.resolve(null),
     triggerHapticImpact() {},
     readPersistentValue: () => null,
     writePersistentValue() {},

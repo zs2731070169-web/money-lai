@@ -36,6 +36,14 @@ export interface LogicalViewportSize {
   height: number;
 }
 
+/** 单行文本输入请求（心事输入，worry-release 规格） */
+export interface TextInputRequest {
+  /** 占位文案 */
+  placeholder: string;
+  /** 长度上限（字符） */
+  maxLength: number;
+}
+
 /** 主画布：2D 上下文已按 DPR 换算，业务绘制一律使用逻辑坐标 */
 export interface PrimaryCanvas {
   /** 2D 渲染上下文（transform 已按 devicePixelRatio 缩放，3x 设备锁 2x） */
@@ -88,4 +96,7 @@ export interface PlatformAdapter {
   nowMilliseconds(): number;
   /** 创建离屏画布（纹理/静态层缓存）；能力不可用时返回 null（调用方降级） */
   createOffscreenCanvas(pixelWidth: number, pixelHeight: number): OffscreenCanvasSurface | null;
+  /** 唤出单行文本输入：resolve 用户确认的文本、取消/关闭 resolve null。
+   *  平台输入 UI（DOM/系统输入法）细节只存在于适配器实现内（worry-release 规格）；MUST NOT 抛出。 */
+  presentTextInput(options: TextInputRequest): Promise<string | null>;
 }

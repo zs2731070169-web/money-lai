@@ -32,6 +32,7 @@ function createTouchHarness(openWallet = true) {
     onTouch(listener) { listeners.push(listener); },
     createAudioContext: () => null,
     onAudioInterruption() {},
+    presentTextInput: () => Promise.resolve(null),
     triggerHapticImpact() {},
     readPersistentValue: () => null,
     writePersistentValue() {},

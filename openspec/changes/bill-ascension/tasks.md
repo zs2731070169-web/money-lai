@@ -21,14 +21,14 @@
 
 ## 4. 音频
 
-- [ ] 4.1 `AUDIO_SYNTHESIS_PARAMETERS.ascensionVoice`（气流+五声琶音）+ engine `playAscensionVoice`；验证：回归镜像同步 + 离线渲染断言（峰值 ≤0.9、无 NaN、时长 1.5-2.5s、无循环段、夜间软化）
+- [ ] 4.1 `AUDIO_SYNTHESIS_PARAMETERS.ascensionVoice`（气流+五声琶音）+ engine `playAscensionVoice`；验证：回归镜像同步 + 离线渲染断言（峰值 ≤0.9、无 NaN、时长 1.5-2.5s、无循环段）
 
 ## 5. 编排接线
 
 - [ ] 5.1 长按纸堆（约 0.5s）唤 `presentTextInput`，确认置位 `pendingWorryBill`、取消无痕；验证：假输入注入的无头集成测试
 - [ ] 5.2 心事钞抽出接线（下一张指定、计张不计额、字迹浮现时序）；验证：无头集成（写→抽→里程表不动/张数+1/图鉴无录入）
 - [ ] 5.3 里程表长按→scatter 状态机→凝沓跟手→松手放飞/取消；验证：无头集成（原位松手取消、上拖放飞）
-- [ ] 5.4 放飞全链路：升腾粒子+声部+触觉+`enqueueAmountOdometerTarget(0)`+静默拍文案+会话清零可续抽；验证：无头集成冒烟（写→抽→放飞→归零→再抽）+ 夜间放飞软化不静默断言
+- [ ] 5.4 放飞全链路：升腾粒子+声部+触觉+`enqueueAmountOdometerTarget(0)`+静默拍文案+会话清零可续抽；验证：无头集成冒烟（写→抽→放飞→归零→再抽）
 - [ ] 5.5 iOS 模拟器实测（build/launch/截图 + 手感清单：凝沓跟手/高处松手/心事钞最后淡去/归零静默拍）；验证：截图核对 + `npm run smoke` 帧预算不回退
 
 ## 6. 回归与收尾

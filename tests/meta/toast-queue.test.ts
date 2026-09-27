@@ -62,6 +62,7 @@ function createToastQueueHarness() {
     },
     createAudioContext: () => null,
     onAudioInterruption() {},
+    presentTextInput: () => Promise.resolve(null),
     triggerHapticImpact() {},
     readPersistentValue: () => persistedJson,
     writePersistentValue() {},

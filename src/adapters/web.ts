@@ -6,6 +6,7 @@ import type {
   PlatformAdapter,
   PrimaryCanvas,
   SafeAreaInsets,
+  TextInputRequest,
   TouchPhase,
 } from '../core/platform';
 
@@ -156,6 +157,59 @@ export function createWebPlatformAdapter(): PlatformAdapter {
         } catch {
           // 静默降级（规格：触觉不可用不报错）
         }
+      });
+    },
+
+    presentTextInput(options: TextInputRequest): Promise<string | null> {
+      // DOM 细节只存在于本适配器（platform-adaptation 规格）：
+      // 底部面板 + 单行输入 + 记下/取消；心事文本仅在本 Promise 存续期间存在，
+      // 关闭即从 DOM 清空（写下即焚的内存边界，无任何存储路径）。
+      return new Promise((resolve) => {
+        let settled = false;
+        const overlayElement = document.createElement('div');
+        overlayElement.style.cssText =
+          'position:fixed;inset:0;z-index:50;background:rgba(61,44,32,0.35);display:flex;align-items:flex-end;justify-content:center;';
+        const panelElement = document.createElement('div');
+        panelElement.style.cssText =
+          'width:100%;max-width:480px;box-sizing:border-box;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:#FAF4EA;border-radius:18px 18px 0 0;display:flex;gap:10px;align-items:center;';
+        const inputElement = document.createElement('input');
+        inputElement.type = 'text';
+        inputElement.placeholder = options.placeholder;
+        inputElement.maxLength = options.maxLength;
+        inputElement.style.cssText =
+          'flex:1;min-width:0;font-size:16px;padding:10px 12px;border-radius:12px;border:1px solid rgba(63,74,69,0.25);background:#FFFFFF;color:#3F4A45;outline:none;';
+        const makeActionButton = (label: string, background: string) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = label;
+          button.style.cssText = `flex:none;padding:10px 14px;border:none;border-radius:12px;background:${background};color:#FFFFFF;font-size:15px;`;
+          return button;
+        };
+        const confirmButton = makeActionButton('记下', '#8FA98B');
+        const cancelButton = makeActionButton('取消', 'rgba(60,62,55,0.35)');
+        const closeOverlay = (result: string | null) => {
+          if (settled) return;
+          settled = true;
+          inputElement.value = ''; // 文本即弃：离开 DOM 前清空
+          overlayElement.remove();
+          resolve(result);
+        };
+        confirmButton.addEventListener('click', () => {
+          closeOverlay(inputElement.value);
+        });
+        cancelButton.addEventListener('click', () => closeOverlay(null));
+        inputElement.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') closeOverlay(inputElement.value);
+          if (event.key === 'Escape') closeOverlay(null);
+        });
+        overlayElement.addEventListener('pointerdown', (event) => {
+          if (event.target === overlayElement) closeOverlay(null);
+        });
+        panelElement.append(inputElement, confirmButton, cancelButton);
+        overlayElement.append(panelElement);
+        document.body.append(overlayElement);
+        // iOS 非手势 focus 可能被系统限制：输入框始终可见可点，点按后键盘自然弹起
+        inputElement.focus({ preventScroll: true });
       });
     },
 

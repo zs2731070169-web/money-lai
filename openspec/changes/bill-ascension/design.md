@@ -41,11 +41,11 @@
 
 ### 6. 放飞声部进参数快照
 
-`AUDIO_SYNTHESIS_PARAMETERS.ascensionVoice`：气流层（宽带噪声、渐入包络）+ 五声琶音（C 大调五声下行 3-5 音、钢琴音色复用 BGM 发声器、间隔约 90ms）；engine 挂 `playAscensionVoice()`，夜间经 SFX 子总线自动软化。回归镜像同步 + 离线渲染断言（峰值/无 NaN/时长/无循环）。
+`AUDIO_SYNTHESIS_PARAMETERS.ascensionVoice`：气流层（宽带噪声、渐入包络）+ 五声琶音（C 大调五声下行 3-5 音、钢琴音色复用 BGM 发声器、间隔约 90ms）；engine 挂 `playAscensionVoice()`。回归镜像同步 + 离线渲染断言（峰值/无 NaN/时长/无循环）。
 
-### 7. 触觉与静默门控
+### 7. 触觉
 
-放飞触觉=一次轻档涟漪（经 `resolveSessionHapticTier` 夜间映射已是轻档）；放飞不在 `PresentableFeedback` 联合类型中（非庆祝类），呈现门控不拦截——规格「夜间软化不静默」由此保证。
+放飞触觉=一次轻档涟漪（用户主动核心交互，直接呈现，不设门控）；当前基线已剥离昼夜剖面（release-strip-bedtime），放飞不依赖任何剖面开关。
 
 ## Risks / Trade-offs
 

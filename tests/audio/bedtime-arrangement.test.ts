@@ -9,15 +9,16 @@ import {
 
 /**
  * 睡眠音频编排单测（sleep-mode 规格，任务 3.x）：
- * 晚安剖面 SFX 软化、里程碑静默、BGM 睡眠编排（C4 顶棚）、熄灭同步淡出。
+ * 晚安剖面 SFX 软化、里程碑静默、BGM 睡眠编排（C4 顶棚）、熄灭期 SFX 归零与 BGM 底板持续。
  */
 
-/** 离线渲染分析：峰值 / 尾段 RMS（熄灭淡出断言用） */
+/** 离线渲染分析：峰值 / 尾段 RMS（熄灭淡出断言用）；可选放大前瞻一次性铺满整段 BGM 调度（模拟编排层每帧泵） */
 async function renderForAnalysis(
   renderSeconds: number,
   sampleRate: number,
   act: (engine: AudioEngine) => void,
-): Promise<{ peakAmplitude: number; nanSampleCount: number; tailRms: number; earlyRms: number }> {
+  scheduleAheadSeconds?: number,
+): Promise<{ peakAmplitude: number; nanSampleCount: number; tailRms: number; earlyRms: number; engine: AudioEngine }> {
   const offlineContext = new OfflineAudioContext(
     2,
     Math.round(sampleRate * renderSeconds),
@@ -28,6 +29,8 @@ async function renderForAnalysis(
   });
   await engine.unlock();
   act(engine);
+  // 真机由 game.ts 每帧 updateBgm() 前瞻 6s 调度；离线渲染 currentTime 冻结，放大前瞻一次铺满
+  if (scheduleAheadSeconds !== undefined) engine.updateBgm(scheduleAheadSeconds);
   const renderedBuffer = await offlineContext.startRendering();
   const firstChannel = renderedBuffer.getChannelData(0);
   let peakAmplitude = 0;
@@ -50,6 +53,7 @@ async function renderForAnalysis(
     nanSampleCount,
     tailRms: Math.sqrt(squaredSumTail / Math.max(1, firstChannel.length - tailStartIndex)),
     earlyRms: Math.sqrt(squaredSumEarly / Math.max(1, tailStartIndex)),
+    engine,
   };
 }
 
@@ -125,15 +129,36 @@ describe('晚安剖面：BGM 睡眠编排', () => {
     }
   });
 
-  it('熄灭淡出：长渲染尾段近无声、全程无 NaN 无削波', async () => {
-    // 低采样率渲染 62s：BGM 解锁起播后立即开始 60s 淡出
-    const analysis = await renderForAnalysis(62, 8000, (engine) => {
-      engine.setBedtimeAudioProfile(true);
-      engine.startBgm();
-      engine.beginSleepDimFadeOut();
+  it('熄灭淡出目标：SFX 归零、BGM 压至底板增益不淡至无声（sleep-mode 规格）', () => {
+    const engine = new AudioEngine({
+      createAudioContext: () => {
+        throw new Error('查询淡出目标不应触碰音频上下文');
+      },
     });
+    const targetGains = engine.getSleepDimFadeOutTargetGains();
+    expect(targetGains.sfxBusTargetGain).toBe(0); // 操作音效熄灭完成无声
+    expect(targetGains.bgmBusTargetGain).toBe(
+      AUDIO_SYNTHESIS_PARAMETERS.bedtimeArrangement.bgmDimFloorGain, // 底板可闻
+    );
+    expect(targetGains.bgmBusTargetGain).toBeGreaterThan(0);
+  });
+
+  it('熄灭淡出：长渲染尾段低音量可闻且低于早期、BGM 不停止、无 NaN 无削波', async () => {
+    // 低采样率渲染 62s：BGM 起播后立即开始 60s 压低至底板；一次性铺满 70s 调度模拟整夜持续播放
+    const analysis = await renderForAnalysis(
+      62,
+      8000,
+      (engine) => {
+        engine.setBedtimeAudioProfile(true);
+        engine.startBgm();
+        engine.beginSleepDimFadeOut();
+      },
+      70,
+    );
     expect(analysis.nanSampleCount).toBe(0);
     expect(analysis.peakAmplitude).toBeLessThanOrEqual(0.9);
-    expect(analysis.tailRms).toBeLessThan(0.0005); // 淡出终点无声
+    expect(analysis.tailRms).toBeGreaterThan(0.0005); // 底板低音量持续（非无声）
+    expect(analysis.tailRms).toBeLessThan(analysis.earlyRms); // 明显低于夜间基准
+    expect(analysis.engine.isPlayingBgm()).toBe(true); // 计划器未停止
   });
 });

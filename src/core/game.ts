@@ -307,7 +307,7 @@ export class Game {
     this.platformAdapter.onAppVisibilityChange((visible) => {
       this.audioEngine.handleAppVisibilityChange(visible);
       if (visible) {
-        // 回前台：待呈现早安卡补呈现；熄灭态下恢复静音方向（BGM 重启会把增益拉回）
+        // 回前台：待呈现早安卡补呈现；熄灭态下恢复熄灭音量方向（BGM 重启会把增益拉回夜间基准，需重新压向底板）
         this.tryPresentMorningCard();
         if (this.bedtimeSessionActive && this.sleepArcState && this.sleepArcState.phase !== 'idle') {
           this.audioEngine.beginSleepDimFadeOut();

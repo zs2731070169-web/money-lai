@@ -88,6 +88,8 @@ export interface AudioSynthesisParameters {
     melodyCeilingMidi: number;
     /** 晚安 BGM 总线增益：较日间再压约 -4.5dB */
     bgmBusGain: number;
+    /** 渐进熄灭期 BGM 底板增益：熄灭后音乐不停，压低至该低音量持续播放（用户实测反馈：音乐不要停，只是声音很低） */
+    bgmDimFloorGain: number;
     /** 晚安操作音效整体增益（软化音量） */
     sfxGainScale: number;
     /** 熄灭淡出时长（秒）：与渐进熄灭 60s 渐暗同步 */
@@ -172,6 +174,7 @@ export const AUDIO_SYNTHESIS_PARAMETERS: AudioSynthesisParameters = {
     melodyMaxIntervalSeconds: 7,
     melodyCeilingMidi: 60,
     bgmBusGain: 0.095,
+    bgmDimFloorGain: 0.05,
     sfxGainScale: 0.6,
     dimFadeOutSeconds: 60,
   },

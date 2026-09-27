@@ -271,11 +271,11 @@ export class AudioEngine {
     this.updateBgm();
   }
 
-  /** 每帧调用：前瞻调度后续 BGM 事件（计划器游标保证增量幂等） */
-  updateBgm(): void {
+  /** 每帧调用：前瞻调度后续 BGM 事件（计划器游标保证增量幂等）；前瞻窗默认 6s，长渲染测试可放大一次性铺满 */
+  updateBgm(lookAheadSeconds: number = 6): void {
     if (!this.bgmPlaying || !this.bgmPlanner || !this.audioContext) return;
     if (!this.bgmDryInputNode || !this.bgmWetSendNode) return;
-    const horizonSeconds = this.audioContext.currentTime + 6;
+    const horizonSeconds = this.audioContext.currentTime + lookAheadSeconds;
     const noteEvents = this.bgmPlanner.planNextEvents(
       horizonSeconds - this.bgmScheduleOriginSeconds,
     );
@@ -379,13 +379,26 @@ export class AudioEngine {
     }
   }
 
-  /** 渐进熄灭：两总线随画面同步淡出至无声（sleep-mode 规格；时长与 60s 渐暗对齐） */
+  /** 渐进熄灭两总线的淡出目标（sleep-mode 规格）：SFX 归零无声、BGM 压至底板持续播放 */
+  getSleepDimFadeOutTargetGains(): { sfxBusTargetGain: number; bgmBusTargetGain: number } {
+    return {
+      sfxBusTargetGain: 0,
+      bgmBusTargetGain: AUDIO_SYNTHESIS_PARAMETERS.bedtimeArrangement.bgmDimFloorGain,
+    };
+  }
+
+  /** 渐进熄灭：两总线随画面同步淡出（sleep-mode 规格；时长与 60s 渐暗对齐）——SFX 淡至无声，BGM 压至底板持续 */
   beginSleepDimFadeOut(): void {
     const audioContext = this.audioContext;
     if (!audioContext) return;
     const fadeSeconds = AUDIO_SYNTHESIS_PARAMETERS.bedtimeArrangement.dimFadeOutSeconds;
+    const { sfxBusTargetGain, bgmBusTargetGain } = this.getSleepDimFadeOutTargetGains();
     const currentSeconds = audioContext.currentTime;
-    for (const gainNode of [this.sfxBusGainNode, this.bgmBusGainNode]) {
+    const busTargetGains = [
+      { gainNode: this.sfxBusGainNode, targetGain: sfxBusTargetGain },
+      { gainNode: this.bgmBusGainNode, targetGain: bgmBusTargetGain },
+    ];
+    for (const { gainNode, targetGain } of busTargetGains) {
       if (!gainNode) continue;
       gainNode.gain.cancelScheduledValues(currentSeconds);
       try {
@@ -393,7 +406,7 @@ export class AudioEngine {
       } catch {
         // 忽略读取失败（部分环境 gain.value 不可读）
       }
-      gainNode.gain.linearRampToValueAtTime(0, currentSeconds + fadeSeconds);
+      gainNode.gain.linearRampToValueAtTime(targetGain, currentSeconds + fadeSeconds);
     }
   }
 

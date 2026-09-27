@@ -19,26 +19,28 @@ function draggedRatio(dragDeltaYPixels: number, profile?: typeof DAYTIME_CASH_DR
 }
 
 describe('抽钞运动剖面', () => {
-  it('日间增益恒为 1（默认参数行为不变）', () => {
-    expect(DAYTIME_CASH_DRAW_MOTION_PROFILE.dragGain).toBe(1);
+  it('日间增益为 0.75（daytime-comfort：与晚安一致的更粘跟手）', () => {
+    expect(DAYTIME_CASH_DRAW_MOTION_PROFILE.dragGain).toBe(0.75);
     const withDefault = draggedRatio(CASH_BILL_LOGICAL_HEIGHT);
     const withExplicit = draggedRatio(CASH_BILL_LOGICAL_HEIGHT, DAYTIME_CASH_DRAW_MOTION_PROFILE);
-    expect(withDefault).toBeCloseTo(1);
+    expect(withDefault).toBeCloseTo(0.75);
     expect(withExplicit).toBe(withDefault);
   });
 
-  it('晚安剖面更粘：同样拖拽行程抽出比例更小但仍跟手（>0）', () => {
+  it('晚安剖面与日间同粘：同样拖拽行程抽出比例一致（daytime-comfort 对齐）', () => {
     const dayRatio = draggedRatio(CASH_BILL_LOGICAL_HEIGHT);
     const nightRatio = draggedRatio(CASH_BILL_LOGICAL_HEIGHT, BEDTIME_CASH_DRAW_MOTION_PROFILE);
     expect(nightRatio).toBeGreaterThan(0);
-    expect(nightRatio).toBeLessThan(dayRatio);
-    expect(nightRatio / dayRatio).toBeCloseTo(BEDTIME_CASH_DRAW_MOTION_PROFILE.dragGain);
+    expect(nightRatio).toBeCloseTo(dayRatio);
+    expect(BEDTIME_CASH_DRAW_MOTION_PROFILE.dragGain).toBe(DAYTIME_CASH_DRAW_MOTION_PROFILE.dragGain);
   });
 
-  it('完成边界随粘性外移：日间完成的行程夜间可能未过阈值而回收', () => {
-    // 选一段使日间恰好过完成阈值、夜间 0.75 增益后低于阈值的行程
+  it('完成边界两剖面一致：同行程两剖面同判（对齐后无外移）', () => {
+    // 选一段恰好越过完成阈值的行程：两剖面（同增益）都完成
     const boundaryDragPx =
-      (CASH_DRAW_COMPLETE_THRESHOLD / 1) * CASH_BILL_LOGICAL_HEIGHT * 1.2; // 日间 0.12 > 0.1
+      (CASH_DRAW_COMPLETE_THRESHOLD / DAYTIME_CASH_DRAW_MOTION_PROFILE.dragGain) *
+      CASH_BILL_LOGICAL_HEIGHT *
+      1.2;
     const dayRatio = draggedRatio(boundaryDragPx);
     const nightRatio = draggedRatio(boundaryDragPx, BEDTIME_CASH_DRAW_MOTION_PROFILE);
     expect(dayRatio).toBeGreaterThanOrEqual(CASH_DRAW_COMPLETE_THRESHOLD);
@@ -63,9 +65,7 @@ describe('抽钞运动剖面', () => {
       { type: 'release' },
       BEDTIME_CASH_DRAW_MOTION_PROFILE,
     );
-    // 夜间同行程未达阈值 → 回收不计计数（更粘 = 需要更长手指行程完成）
-    expect(nightRatio).toBeLessThan(CASH_DRAW_COMPLETE_THRESHOLD);
-    expect(nightRelease.state.phase).toBe('recycling');
-    expect(nightRelease.effects.map((effect) => effect.type)).toContain('bill-recycle-began');
+    expect(nightRatio).toBeCloseTo(dayRatio);
+    expect(nightRelease.state.phase).toBe('completing');
   });
 });

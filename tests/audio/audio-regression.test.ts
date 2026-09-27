@@ -120,6 +120,9 @@ describe('合成参数快照（调音必改快照，防漂移）', () => {
         masterGain: 0.6,
         globalLowpassHertz: 7000,
       },
+      sfxBus: {
+        busGain: 0.6,
+      },
       walletClack: {
         attackRampMilliseconds: 5,
         leatherFlexCenterHertz: 1300,
@@ -173,10 +176,11 @@ describe('合成参数快照（调音必改快照，防漂移）', () => {
       },
       bgm: {
         seed: 20260926,
-        chordDurationSeconds: 10,
-        melodyMinIntervalSeconds: 1,
-        melodyMaxIntervalSeconds: 4.5,
-        bgmBusGain: 0.16,
+        chordDurationSeconds: 14,
+        melodyMinIntervalSeconds: 2,
+        melodyMaxIntervalSeconds: 7,
+        melodyCeilingMidi: 60,
+        bgmBusGain: 0.095,
         fadeInSeconds: 2,
         fadeOutSeconds: 1.5,
       },

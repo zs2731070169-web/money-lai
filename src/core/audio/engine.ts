@@ -119,11 +119,11 @@ export class AudioEngine {
       bgmGainNode.connect(globalLowpassFilter);
       this.bgmBusGainNode = bgmGainNode;
 
-      // 操作音效子总线：晚安剖面整体软化经此生效（sleep-mode 规格）
+      // 操作音效子总线：整体软化（daytime-comfort 日间 0.6；晚安剖面同值经 sfxGainScale 生效）
       const sfxGainNode = audioContext.createGain();
       sfxGainNode.gain.value = this.bedtimeProfileActive
         ? AUDIO_SYNTHESIS_PARAMETERS.bedtimeArrangement.sfxGainScale
-        : 1;
+        : AUDIO_SYNTHESIS_PARAMETERS.sfxBus.busGain;
       sfxGainNode.connect(globalLowpassFilter);
       this.sfxBusGainNode = sfxGainNode;
     }
@@ -347,6 +347,7 @@ export class AudioEngine {
         chordDurationSeconds: daytime.chordDurationSeconds,
         melodyMinIntervalSeconds: daytime.melodyMinIntervalSeconds,
         melodyMaxIntervalSeconds: daytime.melodyMaxIntervalSeconds,
+        melodyCeilingMidi: daytime.melodyCeilingMidi,
         bgmBusGain: daytime.bgmBusGain,
       };
     }
@@ -368,7 +369,7 @@ export class AudioEngine {
     const currentSeconds = audioContext.currentTime;
     const targetSfxGain = active
       ? AUDIO_SYNTHESIS_PARAMETERS.bedtimeArrangement.sfxGainScale
-      : 1;
+      : AUDIO_SYNTHESIS_PARAMETERS.sfxBus.busGain;
     this.sfxBusGainNode.gain.cancelScheduledValues(currentSeconds);
     this.sfxBusGainNode.gain.setValueAtTime(this.sfxBusGainNode.gain.value, currentSeconds);
     this.sfxBusGainNode.gain.linearRampToValueAtTime(targetSfxGain, currentSeconds + 1);
@@ -417,7 +418,7 @@ export class AudioEngine {
     const currentSeconds = audioContext.currentTime;
     const targetSfxGain = this.bedtimeProfileActive
       ? AUDIO_SYNTHESIS_PARAMETERS.bedtimeArrangement.sfxGainScale
-      : 1;
+      : AUDIO_SYNTHESIS_PARAMETERS.sfxBus.busGain;
     if (this.sfxBusGainNode) {
       this.sfxBusGainNode.gain.cancelScheduledValues(currentSeconds);
       this.sfxBusGainNode.gain.setValueAtTime(this.sfxBusGainNode.gain.value, currentSeconds);

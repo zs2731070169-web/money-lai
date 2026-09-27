@@ -22,7 +22,21 @@ const BGM_PLANNER_PARAMETERS = {
   chordDurationSeconds: AUDIO_SYNTHESIS_PARAMETERS.bgm.chordDurationSeconds,
   melodyMinIntervalSeconds: AUDIO_SYNTHESIS_PARAMETERS.bgm.melodyMinIntervalSeconds,
   melodyMaxIntervalSeconds: AUDIO_SYNTHESIS_PARAMETERS.bgm.melodyMaxIntervalSeconds,
+  melodyCeilingMidi: AUDIO_SYNTHESIS_PARAMETERS.bgm.melodyCeilingMidi,
 };
+
+/** 日间基线旋律顶棚（daytime-comfort-baseline：C4 低音域，按八度循环折叠） */
+const MELODY_SOUNDED_CEILING_MIDI =
+  AUDIO_SYNTHESIS_PARAMETERS.bgm.melodyCeilingMidi ?? MELODY_CEILING_MIDI;
+
+/** 顶棚下的合法发声音高集合：音阶锚点按八度折叠至 ≤ 顶棚 */
+const MELODY_SOUNDED_MIDI_SET = new Set(
+  MELODY_SCALE_MIDI.map((midi) => {
+    let soundedMidi = midi;
+    while (soundedMidi > MELODY_SOUNDED_CEILING_MIDI) soundedMidi -= 12;
+    return soundedMidi;
+  }),
+);
 
 describe('BGM 计划器：确定性（种子回归）', () => {
   it('相同种子 → 完全一致的事件序列', () => {
@@ -57,27 +71,24 @@ describe('BGM 计划器：音乐约束', () => {
 
   const plannedEvents = createGenerativePianoPlanner(20260926, BGM_PLANNER_PARAMETERS).planNextEvents(40);
 
-  it('旋律发声音高不越 C5 顶棚：E5/G5/A5 折下一八度，其余原位', () => {
+  it('旋律发声音高不越日间顶棚（C4）：行走音按八度循环折叠至 ≤ 顶棚', () => {
     const melodyEvents = plannedEvents.filter((event) => event.layer === 'melody');
-    const allowedSoundedMidi = new Set(
-      MELODY_SCALE_MIDI.map((midi) => (midi > MELODY_CEILING_MIDI ? midi - 12 : midi)),
-    );
     for (const melodyEvent of melodyEvents) {
       const approximateMidi = 69 + 12 * Math.log2(melodyEvent.frequencyHertz / 440);
-      const matched = Array.from(allowedSoundedMidi).some(
+      const matched = Array.from(MELODY_SOUNDED_MIDI_SET).some(
         (midi) => Math.abs(midiNoteToFrequencyHertz(midi) - melodyEvent.frequencyHertz) < 0.5,
       );
       expect(matched).toBe(true);
-      expect(approximateMidi).toBeLessThanOrEqual(MELODY_CEILING_MIDI + 0.01);
+      expect(approximateMidi).toBeLessThanOrEqual(MELODY_SOUNDED_CEILING_MIDI + 0.01);
     }
   });
 
-  it('旋律音高全部落在 C 大调五声音阶（两个八度内）', () => {
+  it('旋律音高全部落在顶棚下的五声发声集合（C 大调五声音阶折叠）', () => {
     const melodyEvents = plannedEvents.filter((event) => event.layer === 'melody');
     expect(melodyEvents.length).toBeGreaterThan(5);
-    // 发声集合 = 原音阶 ∪ 折下音（顶棚以下的 64/67/69 等中音也是合法发声）
+    // 发声集合 = 音阶锚点按八度折叠至顶棚以下的音（daytime-comfort：整体低音域）
     const allowedFrequencies = new Set(
-      MELODY_SCALE_MIDI.map((midi) => midiNoteToFrequencyHertz(midi)),
+      Array.from(MELODY_SOUNDED_MIDI_SET).map((midi) => midiNoteToFrequencyHertz(midi)),
     );
     for (const melodyEvent of melodyEvents) {
       const nearestMatches = Array.from(allowedFrequencies).filter(
@@ -87,7 +98,7 @@ describe('BGM 计划器：音乐约束', () => {
     }
   });
 
-  it('旋律音符间隔在 1~3 秒（稀疏行走）', () => {
+  it('旋律音符间隔在参数区间内（稀疏行走）', () => {
     const melodyStartTimes = plannedEvents
       .filter((event) => event.layer === 'melody')
       .map((event) => event.startAtSeconds)
@@ -100,17 +111,29 @@ describe('BGM 计划器：音乐约束', () => {
   });
 
   it('伴奏为分解和弦：4 个和弦槽 × 6 音，低音根音锁定节拍（无持续铺底）', () => {
-    const chordEvents = plannedEvents.filter((event) => event.layer === 'chord');
+    const chordDurationSeconds = AUDIO_SYNTHESIS_PARAMETERS.bgm.chordDurationSeconds;
+    // 计划满 4 个完整和弦槽（槽长参数化：daytime-comfort 基线 14s/槽）
+    const chordPlannedEvents = createGenerativePianoPlanner(
+      20260926,
+      BGM_PLANNER_PARAMETERS,
+    ).planNextEvents(chordDurationSeconds * 4);
+    const chordEvents = chordPlannedEvents.filter(
+      (event) => event.layer === 'chord' && event.startAtSeconds < chordDurationSeconds * 4,
+    );
     expect(chordEvents.length).toBe(24);
     const bassStartTimes = chordEvents
       .map((event) => event.startAtSeconds)
-      .filter((startAtSeconds) => [0, 10, 20, 30].includes(startAtSeconds));
+      .filter((startAtSeconds) =>
+        [0, chordDurationSeconds, chordDurationSeconds * 2, chordDurationSeconds * 3].includes(
+          startAtSeconds,
+        ),
+      );
     expect(bassStartTimes.length).toBe(4);
     for (let chordSlot = 0; chordSlot < 4; chordSlot += 1) {
       const slotEventCount = chordEvents.filter(
         (event) =>
-          event.startAtSeconds >= chordSlot * 10 &&
-          event.startAtSeconds < (chordSlot + 1) * 10,
+          event.startAtSeconds >= chordSlot * chordDurationSeconds &&
+          event.startAtSeconds < (chordSlot + 1) * chordDurationSeconds,
       ).length;
       expect(slotEventCount).toBe(6);
     }
@@ -146,7 +169,7 @@ describe('BGM 离线渲染（引擎集成）', () => {
     expect((lastAudibleSampleIndex / 44100) * 1000).toBeGreaterThan(3000); // 持续铺底
   });
 
-  it('BGM 音量低于操作音效总线（busGain 0.16 < master 0.6）', () => {
+  it('BGM 音量低于操作音效总线（busGain 0.095 < master 0.6）', () => {
     expect(AUDIO_SYNTHESIS_PARAMETERS.bgm.bgmBusGain).toBeLessThan(
       AUDIO_SYNTHESIS_PARAMETERS.masterBus.masterGain,
     );

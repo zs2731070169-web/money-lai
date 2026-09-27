@@ -68,7 +68,7 @@ function createTouchHarness(openWallet = true) {
     touch('start', 200, layout.walletRect.top + 50);
     touch('move', 200, layout.walletRect.top + 20); // 上滑 30px 开钱包
     touch('end', 200, layout.walletRect.top + 20);
-    frames(75);
+    frames(120); // 开盖折叠 1680ms（daytime-comfort）≈ 101 帧，留余量
     expect(game.getSmokeTestSnapshot().walletOpen).toBe(true);
   }
   return { game, touch, tap, frames };
@@ -128,8 +128,8 @@ describe('钱包与纸币的轻点和拖拽归属', () => {
     const harness = createTouchHarness();
     const billY = visibleBill.top + 12;
     harness.touch('start', centerX, billY);
-    harness.touch('move', centerX, billY - 160);
-    harness.touch('end', centerX, billY - 160);
+    harness.touch('move', centerX, billY - 220);
+    harness.touch('end', centerX, billY - 220);
     harness.frames(45);
     expect(harness.game.getSmokeTestSnapshot().sessionCount).toBe(1);
   });
@@ -139,8 +139,8 @@ describe('钱包与纸币的轻点和拖拽归属', () => {
     const leatherY = visibleBill.top - 14;
     harness.touch('start', centerX, leatherY);
     harness.touch('move', centerX, leatherY - 20);
-    harness.touch('move', centerX, leatherY - 150);
-    harness.touch('end', centerX, leatherY - 150);
+    harness.touch('move', centerX, leatherY - 210);
+    harness.touch('end', centerX, leatherY - 210);
     harness.frames(45);
     expect(harness.game.getSmokeTestSnapshot().sessionCount).toBe(1);
   });
@@ -163,7 +163,7 @@ describe('钱包与纸币的轻点和拖拽归属', () => {
     harness.touch('start', centerX, leatherY);
     harness.touch('move', centerX, leatherY + 35);
     harness.touch('end', centerX, leatherY + 35);
-    harness.frames(75);
+    harness.frames(120); // 关盖折叠 1520ms（daytime-comfort）≈ 92 帧
     const state = harness.game.getSmokeTestSnapshot();
     expect(state.walletOpen).toBe(false);
     expect(state.sessionCount).toBe(0);
@@ -173,12 +173,12 @@ describe('钱包与纸币的轻点和拖拽归属', () => {
     const harness = createTouchHarness();
     const billY = visibleBill.top + 12;
     harness.touch('start', centerX, billY);
-    harness.touch('move', centerX, billY - 160);
-    harness.touch('end', centerX, billY - 160);
+    harness.touch('move', centerX, billY - 220);
+    harness.touch('end', centerX, billY - 220);
     harness.frames(5);
     harness.touch('start', centerX, billY);
-    harness.touch('move', centerX, billY - 160);
-    harness.touch('end', centerX, billY - 160);
+    harness.touch('move', centerX, billY - 220);
+    harness.touch('end', centerX, billY - 220);
     harness.frames(45);
     // 在途张在再抓取瞬间结算 + 新张完成：两都计入（rapid-draw-settlement）
     expect(harness.game.getSmokeTestSnapshot().sessionCount).toBe(2);
@@ -189,8 +189,8 @@ describe('钱包与纸币的轻点和拖拽归属', () => {
     const billY = visibleBill.top + 12;
     for (let drawIndex = 0; drawIndex < 3; drawIndex += 1) {
       harness.touch('start', centerX, billY);
-      harness.touch('move', centerX, billY - 160);
-      harness.touch('end', centerX, billY - 160);
+      harness.touch('move', centerX, billY - 220);
+      harness.touch('end', centerX, billY - 220);
       harness.frames(4); // 每张松手后仅 ~67ms（< 480ms 完成动画）即开始下一抓
     }
     harness.frames(45);
@@ -230,8 +230,8 @@ describe('元进程抽屉入口与导航', () => {
     harness.frames(12);
     // 抽钞方向的完整手势
     harness.touch('start', billX, billY);
-    harness.touch('move', billX, billY - 160);
-    harness.touch('end', billX, billY - 160);
+    harness.touch('move', billX, billY - 220);
+    harness.touch('end', billX, billY - 220);
     harness.frames(45);
     // 关盖方向的完整手势
     harness.touch('start', billX, visible.top - 14);
@@ -276,8 +276,8 @@ describe('元进程抽屉入口与导航', () => {
     const billX = visible.left + visible.width / 2;
     const billY = visible.top + 12;
     harness.touch('start', billX, billY);
-    harness.touch('move', billX, billY - 160);
-    harness.touch('end', billX, billY - 160);
+    harness.touch('move', billX, billY - 220);
+    harness.touch('end', billX, billY - 220);
     harness.frames(45);
     expect(harness.game.getSmokeTestSnapshot().sessionCount).toBe(1);
   });
@@ -301,8 +301,8 @@ describe('元进程抽屉入口与导航', () => {
     harness.tap(entry.centerX, entry.centerY);
     // 不跑帧：此刻 currentOverlayLayout 尚为 null，触摸必须作废而非驱动抽钞
     harness.touch('start', billX, billY);
-    harness.touch('move', billX, billY - 160);
-    harness.touch('end', billX, billY - 160);
+    harness.touch('move', billX, billY - 220);
+    harness.touch('end', billX, billY - 220);
     harness.frames(45);
     const state = harness.game.getSmokeTestSnapshot();
     expect(state.drawerOpen).toBe(true);

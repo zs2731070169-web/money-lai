@@ -58,7 +58,7 @@ async function renderForAnalysis(
 }
 
 describe('晚安剖面：SFX 软化与里程碑静默', () => {
-  it('夜间开合音较日间软化（峰值更低但仍可闻）', async () => {
+  it('夜间开合音与日间同响（daytime-comfort：软化已是日间基线）', async () => {
     const dayAnalysis = await renderForAnalysis(0.6, 44100, (engine) => {
       engine.playWalletClack('open');
     });
@@ -68,9 +68,8 @@ describe('晚安剖面：SFX 软化与里程碑静默', () => {
     });
     expect(dayAnalysis.nanSampleCount).toBe(0);
     expect(nightAnalysis.nanSampleCount).toBe(0);
-    expect(dayAnalysis.peakAmplitude).toBeGreaterThan(0.02);
-    expect(nightAnalysis.peakAmplitude).toBeGreaterThan(0.005); // 软化非静默
-    expect(nightAnalysis.peakAmplitude).toBeLessThan(dayAnalysis.peakAmplitude);
+    expect(dayAnalysis.peakAmplitude).toBeGreaterThan(0.005); // 软化非静默（日间即 0.6）
+    expect(nightAnalysis.peakAmplitude).toBeCloseTo(dayAnalysis.peakAmplitude, 2);
   });
 
   it('夜间里程碑音全静默（呈现静默，规格硬约束）', async () => {

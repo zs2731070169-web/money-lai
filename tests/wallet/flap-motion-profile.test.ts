@@ -51,25 +51,19 @@ describe('翻盖运动剖面', () => {
     expect(defaultDuration).toBeLessThanOrEqual(WALLET_FLAP_FOLD_OPEN_DURATION_MS + 33);
   });
 
-  it('晚安剖面时长落在 1.4-1.8 倍区间', () => {
-    const openRatio =
-      BEDTIME_WALLET_FLAP_MOTION_PROFILE.foldOpenDurationMs / WALLET_FLAP_FOLD_OPEN_DURATION_MS;
-    const closeRatio =
-      BEDTIME_WALLET_FLAP_MOTION_PROFILE.foldCloseDurationMs / WALLET_FLAP_FOLD_CLOSE_DURATION_MS;
-    expect(openRatio).toBeGreaterThanOrEqual(1.4);
-    expect(openRatio).toBeLessThanOrEqual(1.8);
-    expect(closeRatio).toBeGreaterThanOrEqual(1.4);
-    expect(closeRatio).toBeLessThanOrEqual(1.8);
+  it('晚安剖面时长与日间同值（daytime-comfort 对齐：日间基线即原夜间 1.6 倍舒缓值）', () => {
+    expect(BEDTIME_WALLET_FLAP_MOTION_PROFILE.foldOpenDurationMs).toBe(
+      WALLET_FLAP_FOLD_OPEN_DURATION_MS,
+    );
+    expect(BEDTIME_WALLET_FLAP_MOTION_PROFILE.foldCloseDurationMs).toBe(
+      WALLET_FLAP_FOLD_CLOSE_DURATION_MS,
+    );
   });
 
-  it('晚安剖面实际开折叠完成时间明显长于日间且在区间内', () => {
+  it('晚安剖面实际开折叠完成时间与日间一致（对齐后无差异）', () => {
     const bedtimeDuration = measureOpenFoldDurationMs(BEDTIME_WALLET_FLAP_MOTION_PROFILE);
-    expect(bedtimeDuration).toBeGreaterThanOrEqual(
-      WALLET_FLAP_FOLD_OPEN_DURATION_MS * 1.4,
-    );
-    expect(bedtimeDuration).toBeLessThanOrEqual(
-      WALLET_FLAP_FOLD_OPEN_DURATION_MS * 1.8 + 33,
-    );
+    const daytimeDuration = measureOpenFoldDurationMs(DAYTIME_WALLET_FLAP_MOTION_PROFILE);
+    expect(bedtimeDuration).toBe(daytimeDuration);
   });
 
   it('晚安剖面下关闭折叠仍恰发射一次触面效果（拍音时机保留）', () => {

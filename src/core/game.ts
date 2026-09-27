@@ -476,6 +476,9 @@ export class Game {
       case 'menu-achievements':
         this.setDrawerStage('achievements');
         return;
+      case 'menu-sleep-ledger':
+        this.setDrawerStage('sleep-ledger');
+        return;
       case 'menu-settings':
         this.setDrawerStage('settings');
         return;
@@ -1098,6 +1101,7 @@ export class Game {
           achieved: this.persistedState.achievements.includes(achievementDefinition.id),
         })),
           settings: this.persistedState.settings,
+          sleepLedger: this.persistedState.sleepLedger ?? [],
         };
         this.overlayPageDataCache = { key: overlayPageDataCacheKeyForFrame, data: overlayPageData };
       }

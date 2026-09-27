@@ -10,7 +10,13 @@ import type { PersistedGameStateV1 } from './game-state';
  * openProgress 为入参（0~1），布局本身无时钟无副作用，动画推进由编排层逐帧喂入。
  */
 
-export type OverlayPageKind = 'gallery' | 'skins' | 'achievements' | 'settings' | 'privacy';
+export type OverlayPageKind =
+  | 'gallery'
+  | 'skins'
+  | 'achievements'
+  | 'sleep-ledger'
+  | 'settings'
+  | 'privacy';
 
 /** 抽屉阶段：menu=菜单列表首屏；其余=在抽屉内展示对应页面 */
 export type DrawerStage = 'menu' | OverlayPageKind;
@@ -22,6 +28,7 @@ export interface OverlayButton {
     | 'menu-gallery'
     | 'menu-skins'
     | 'menu-achievements'
+    | 'menu-sleep-ledger'
     | 'menu-settings'
     | 'back-to-menu'
     | 'back-to-settings'
@@ -108,12 +115,13 @@ export function computeOverlayLayout(
     },
   });
 
-  // 菜单首屏：图鉴/皮肤/成就/设置四行入口
+  // 菜单首屏：图鉴/皮肤/成就/睡眠账本/设置五行入口（sleep-mode 规格扩为五条目）
   if (stage === 'menu') {
     const menuKinds: Array<[OverlayButton['action'], string]> = [
       ['menu-gallery', '图鉴'],
       ['menu-skins', '皮肤'],
       ['menu-achievements', '成就'],
+      ['menu-sleep-ledger', '睡眠账本'],
       ['menu-settings', '设置'],
     ];
     menuKinds.forEach(([action, label], rowIndex) => {
@@ -265,7 +273,7 @@ export function resolveOverlayHit(
 /**
  * 抽屉页面数据缓存键（meta-side-drawer 动画性能）：
  * 覆盖页面内容的全部变化源——stage、图鉴首抽、皮肤解锁（只增不减→长度）、
- * 双槽选中皮肤、成就（只增不减→长度）、设置三开关。
+ * 双槽选中皮肤、成就（只增不减→长度）、设置三开关、睡眠账本条数。
  * 键稳定 ⇔ 页面数据可复用，动画帧上零重建零分配。
  */
 export function overlayPageDataCacheKey(
@@ -283,5 +291,36 @@ export function overlayPageDataCacheKey(
     soundEnabled ? 1 : 0,
     bgmEnabled ? 1 : 0,
     hapticsEnabled ? 1 : 0,
+    (state.sleepLedger ?? []).length,
   ].join('|');
+}
+
+/** 早安卡布局（sleep-mode 规格「会话封存与早安卡」）：瞬态居中卡片 + 关闭按钮，纯函数 */
+export interface MorningCardLayout {
+  /** 轻衬底矩形（全屏，聚焦卡片；点按衬底不关闭——只有按钮关闭，避免误触） */
+  scrimRect: Rect;
+  /** 卡片矩形 */
+  cardRect: Rect;
+  /** 「开始新的一天」关闭按钮矩形（看到的=可点的） */
+  dismissButtonRect: Rect;
+}
+
+export function computeMorningCardLayout(
+  viewportWidth: number,
+  viewportHeight: number,
+): MorningCardLayout {
+  const cardWidth = Math.min(viewportWidth - 48, 340);
+  const cardHeight = 204;
+  const cardLeft = (viewportWidth - cardWidth) / 2;
+  const cardTop = viewportHeight * 0.3;
+  return {
+    scrimRect: { left: 0, top: 0, width: viewportWidth, height: viewportHeight },
+    cardRect: { left: cardLeft, top: cardTop, width: cardWidth, height: cardHeight },
+    dismissButtonRect: {
+      left: cardLeft + cardWidth / 2 - 80,
+      top: cardTop + cardHeight - 60,
+      width: 160,
+      height: 44,
+    },
+  };
 }

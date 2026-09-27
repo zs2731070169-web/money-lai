@@ -275,7 +275,7 @@ export function resolveOverlayHit(
 /**
  * 抽屉页面数据缓存键（meta-side-drawer 动画性能）：
  * 覆盖页面内容的全部变化源——stage、图鉴首抽、皮肤解锁（只增不减→长度）、
- * 双槽选中皮肤、成就（只增不减→长度）、设置三开关、睡眠账本条数。
+ * 双槽选中皮肤、成就（只增不减→长度）、设置四开关（含晚安模式）、睡眠账本条数。
  * 键稳定 ⇔ 页面数据可复用，动画帧上零重建零分配。
  */
 export function overlayPageDataCacheKey(
@@ -293,6 +293,7 @@ export function overlayPageDataCacheKey(
     soundEnabled ? 1 : 0,
     bgmEnabled ? 1 : 0,
     hapticsEnabled ? 1 : 0,
+    state.settings.bedtimeModeEnabled ? 1 : 0,
     (state.sleepLedger ?? []).length,
   ].join('|');
 }

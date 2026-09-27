@@ -61,7 +61,8 @@ export function createInitialPersistedGameState(): PersistedGameStateV1 {
     activeWalletSkin: DEFAULT_SKIN_ID,
     activeBillSkin: null,
     achievements: [],
-    settings: { soundEnabled: true, bgmEnabled: true, hapticsEnabled: true, bedtimeModeEnabled: false },
+    // 晚安模式默认开启（bedtime-default-on：产品定位「睡前数钱」，新装即夜间剖面）
+    settings: { soundEnabled: true, bgmEnabled: true, hapticsEnabled: true, bedtimeModeEnabled: true },
     sleepLedger: [],
     pendingMorningCardRecordId: null,
   };
@@ -147,7 +148,8 @@ export function parsePersistedGameState(rawJson: string | null): ParsedPersisted
         typeof record.activeWalletSkin === 'string'
           ? (record as unknown as PersistedGameStateV1)
           : migrateLegacyActiveSkin(record);
-      // sleep-mode 可选字段规范化：缺省补默认值，损坏字段静默降级不连坐
+      // sleep-mode 可选字段规范化：缺省补默认值（晚安模式默认开启，bedtime-default-on），
+      // 损坏字段静默降级不连坐；用户显式关闭过的存档携带 false，不会被默认值覆盖
       const settingsRecord = migratedState.settings as unknown as Record<string, unknown>;
       const normalizedState: PersistedGameStateV1 = {
         ...migratedState,
@@ -156,7 +158,7 @@ export function parsePersistedGameState(rawJson: string | null): ParsedPersisted
           bedtimeModeEnabled:
             typeof settingsRecord.bedtimeModeEnabled === 'boolean'
               ? settingsRecord.bedtimeModeEnabled
-              : false,
+              : true,
         },
         sleepLedger: extractValidSleepLedger(record),
         pendingMorningCardRecordId: extractValidPendingMorningCardRecordId(record),

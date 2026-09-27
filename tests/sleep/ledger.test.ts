@@ -90,13 +90,13 @@ describe('会话封存纯函数', () => {
 });
 
 describe('持久化 round-trip 与字段级容错', () => {
-  it('初始态 round-trip：账本空、晚安开关关闭', () => {
+  it('初始态 round-trip：账本空、晚安开关默认开启（bedtime-default-on）', () => {
     const initial = createInitialPersistedGameState();
     const parsed = parsePersistedGameState(serializePersistedGameState(initial));
     expect(parsed.resetToInitial).toBe(false);
     expect(parsed.state.sleepLedger).toEqual([]);
     expect(parsed.state.pendingMorningCardRecordId).toBeNull();
-    expect(parsed.state.settings.bedtimeModeEnabled).toBe(false);
+    expect(parsed.state.settings.bedtimeModeEnabled).toBe(true);
   });
 
   it('账本与开关 round-trip：记录完整保留、早安卡待呈现标记保留', () => {
@@ -146,7 +146,7 @@ describe('持久化 round-trip 与字段级容错', () => {
     expect(parsed.state.sleepLedger).toEqual([]);
   });
 
-  it('早安卡标记损坏归 null；晚安开关非布尔归 false', () => {
+  it('早安卡标记损坏归 null；晚安开关非布尔归默认开启（显式 false 不被覆盖）', () => {
     const state = createInitialPersistedGameState();
     const corruptedJson = serializePersistedGameState({
       ...state,
@@ -155,6 +155,15 @@ describe('持久化 round-trip 与字段级容错', () => {
     } as unknown as PersistedGameStateV1);
     const parsed = parsePersistedGameState(corruptedJson);
     expect(parsed.state.pendingMorningCardRecordId).toBeNull();
-    expect(parsed.state.settings.bedtimeModeEnabled).toBe(false);
+    expect(parsed.state.settings.bedtimeModeEnabled).toBe(true);
+
+    // 用户显式关闭过的存档：布尔 false 原样保留，不被默认值覆盖
+    const explicitOffJson = serializePersistedGameState({
+      ...state,
+      settings: { ...state.settings, bedtimeModeEnabled: false },
+    });
+    expect(parsePersistedGameState(explicitOffJson).state.settings.bedtimeModeEnabled).toBe(
+      false,
+    );
   });
 });

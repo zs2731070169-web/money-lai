@@ -175,13 +175,11 @@ function toggleBedtimeViaSettings(
   }
 }
 
-describe('晚安会话集成（设置开关 + 抽钞 + 熄灭封存 + 早安卡）', () => {
-  it('设置开关进入晚安会话：抽钞判定照常、触觉降为最轻档、里程表延续', () => {
+describe('晚安会话集成（默认夜间 + 设置开关 + 抽钞 + 熄灭封存 + 早安卡）', () => {
+  it('新装默认夜间剖面：抽钞判定照常、触觉降为最轻档、里程表延续', () => {
     const harness = createBedtimeHarness(null);
     harness.frames(2);
-    expect(harness.game.getSmokeTestSnapshot().bedtimeSessionActive).toBe(false);
-
-    toggleBedtimeViaSettings(harness);
+    // bedtime-default-on：新装冷启动即夜间剖面（无需任何开关操作）
     const enteredSnapshot = harness.game.getSmokeTestSnapshot();
     expect(enteredSnapshot.bedtimeSessionActive).toBe(true);
     expect(enteredSnapshot.sleepArcPhase).toBe('idle');
@@ -197,9 +195,8 @@ describe('晚安会话集成（设置开关 + 抽钞 + 熄灭封存 + 早安卡�
   it('退出晚安会话：主动退出封存一条无入睡点记录、不触发早安卡', () => {
     const harness = createBedtimeHarness(null);
     harness.frames(2);
-    toggleBedtimeViaSettings(harness);
     drawOneBill(harness);
-    toggleBedtimeViaSettings(harness); // 再次切换 = 关闭
+    toggleBedtimeViaSettings(harness); // 默认开启下首次切换 = 关闭
     const snapshot = harness.game.getSmokeTestSnapshot();
     expect(snapshot.bedtimeSessionActive).toBe(false);
     expect(snapshot.sleepLedgerNightCount).toBe(1);
@@ -209,7 +206,6 @@ describe('晚安会话集成（设置开关 + 抽钞 + 熄灭封存 + 早安卡�
   it('熄灭弧线：静置跨阈值封存、触摸温和恢复不退出、同夜不重复封存', () => {
     const harness = createBedtimeHarness(null);
     harness.frames(2);
-    toggleBedtimeViaSettings(harness);
     drawOneBill(harness);
     // 静置跨过 90s 阈值 → 渐暗；跨过 150s → 近黑 + 入睡点封存（帧循环按单调时钟补判）
     harness.advanceClockBy(95_000);
@@ -236,7 +232,6 @@ describe('晚安会话集成（设置开关 + 抽钞 + 熄灭封存 + 早安卡�
   it('早安卡：封存后的回前台一次性呈现，点「开始新的一天」关闭且不再呈现', () => {
     const harness = createBedtimeHarness(null);
     harness.frames(2);
-    toggleBedtimeViaSettings(harness);
     drawOneBill(harness);
     harness.advanceClockBy(160_000);
     harness.frames(2);
@@ -262,7 +257,6 @@ describe('晚安会话集成（设置开关 + 抽钞 + 熄灭封存 + 早安卡�
   it('封存数据持久化：新冷启动从存档恢复账本并保持晚安开关状态', () => {
     const firstHarness = createBedtimeHarness(null);
     firstHarness.frames(2);
-    toggleBedtimeViaSettings(firstHarness);
     drawOneBill(firstHarness);
     firstHarness.advanceClockBy(160_000);
     firstHarness.frames(2);
@@ -279,5 +273,18 @@ describe('晚安会话集成（设置开关 + 抽钞 + 熄灭封存 + 早安卡�
     expect(snapshot.bedtimeSessionActive).toBe(true);
     expect(snapshot.sleepLedgerNightCount).toBe(1);
     expect(snapshot.morningCardVisible).toBe(true);
+  });
+
+  it('用户显式关闭：冷启动保持关闭（默认开启不覆盖用户选择）', () => {
+    const firstHarness = createBedtimeHarness(null);
+    firstHarness.frames(2);
+    toggleBedtimeViaSettings(firstHarness); // 默认开启 → 关闭
+    expect(firstHarness.game.getSmokeTestSnapshot().bedtimeSessionActive).toBe(false);
+    const persistedJson = firstHarness.persistedStore.get(PERSISTED_STATE_STORAGE_KEY) ?? null;
+    expect(parsePersistedGameState(persistedJson).state.settings.bedtimeModeEnabled).toBe(false);
+
+    const secondHarness = createBedtimeHarness(persistedJson);
+    secondHarness.frames(2);
+    expect(secondHarness.game.getSmokeTestSnapshot().bedtimeSessionActive).toBe(false);
   });
 });

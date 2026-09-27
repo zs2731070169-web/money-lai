@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DAYTIME_BOOT_PERSISTED_JSON } from '../support/daytime-boot-state';
 import { Game } from '../../src/core/game';
 import { billRectAtDrawRatio } from '../../src/core/render/bill-geometry';
 import { computeSceneLayout } from '../../src/core/render/scene-layout';
@@ -33,7 +34,7 @@ function createTouchHarness(openWallet = true) {
     createAudioContext: () => null,
     onAudioInterruption() {},
     triggerHapticImpact() {},
-    readPersistentValue: () => null,
+    readPersistentValue: () => DAYTIME_BOOT_PERSISTED_JSON,
     writePersistentValue() {},
     getSafeAreaInsets: () => SAFE_AREA,
     getLogicalViewportSize: () => VIEWPORT,

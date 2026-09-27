@@ -191,6 +191,14 @@ describe('抽屉页面数据缓存键', () => {
     const afterKey = overlayPageDataCacheKey(state, 'sleep-ledger');
     expect(beforeKey).not.toBe(afterKey);
   });
+
+  it('晚安模式开关位变化 → 缓存键变化（设置页胶囊不残留旧状态）', () => {
+    const state: PersistedGameStateV1 = createInitialPersistedGameState();
+    const beforeKey = overlayPageDataCacheKey(state, 'settings');
+    state.settings = { ...state.settings, bedtimeModeEnabled: !state.settings.bedtimeModeEnabled };
+    const afterKey = overlayPageDataCacheKey(state, 'settings');
+    expect(beforeKey).not.toBe(afterKey);
+  });
 });
 
 /** 多行拼接文本包含断言辅助 */

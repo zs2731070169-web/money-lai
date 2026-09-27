@@ -10,7 +10,7 @@ import { Point2D, Rect, clampToUnitInterval } from '../wallet/flap-hit-test';
 export const CASH_BILL_LOGICAL_HEIGHT = 20;
 
 /** 完成阈值：抽出比例 ≥ 0.35 判定本张完成（规格 R3；曾临时 0.1，按规格与 design 意图回正） */
-export const CASH_DRAW_COMPLETE_THRESHOLD = 0.1;
+export const CASH_DRAW_COMPLETE_THRESHOLD = 0.35;
 
 /** 抽钞意图判定的手势容差（逻辑像素）：未达此值不开始抓取 */
 export const CASH_DRAW_GESTURE_SLOP_DISTANCE = 2;

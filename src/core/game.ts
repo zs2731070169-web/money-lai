@@ -83,7 +83,9 @@ import {
   projectFlapPointAtParameter,
   resolveFlapStandingAngleDegrees,
 } from './render/flap-projection';
-import { INK_TEXT_COLOR_HEX } from './render/design-tokens';
+import { INK_TEXT_COLOR_HEX, resolveSceneBrightness } from './render/design-tokens';
+import { paintNightDimOverlay } from './render/night-dim-painter';
+import { SLEEP_NIGHT_BASE_BRIGHTNESS } from './sleep/sleep-arc';
 import {
   FlapFaceSurfaces,
   drawFlapBackFaceArt,
@@ -194,6 +196,10 @@ export class Game {
   private lastPointerTimestampMs = 0;
   private pointerSpeedPixelsPerSecond = 0;
   private reducedMotionEnabled = false;
+  /** 晚安会话是否进行中（sleep-mode 规格；任务 5.x 由设置开关与时间窗建议驱动） */
+  private bedtimeSessionActive = false;
+  /** 熄灭弧线当前亮度系数（sleep-mode 规格；1=夜间基准；任务 5.x 由 sleep-arc 推进） */
+  private sleepArcBrightness = SLEEP_NIGHT_BASE_BRIGHTNESS;
   /** 本轮抽钞是否已播放过唯一一次抓取沙响（规格 v2.6：一抓一声） */
   private billGrabRustlePlayed = false;
   private firstDrawGuidanceDismissed = false;
@@ -1120,5 +1126,13 @@ export class Game {
         viewport.width,
       );
     }
+
+    // 夜间视觉基调与渐进熄灭（sleep-mode 规格）：全画面统一暖黑叠层乘算亮度。
+    // 各画师输出零改动；日间（亮度恒 1）不加叠层，渲染输出与既有完全一致。
+    const sceneBrightness = resolveSceneBrightness(
+      this.bedtimeSessionActive,
+      this.sleepArcBrightness,
+    );
+    paintNightDimOverlay(renderingContext, viewport.width, viewport.height, sceneBrightness);
   }
 }

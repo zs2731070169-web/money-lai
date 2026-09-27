@@ -5,6 +5,8 @@ import {
   DENOMINATION_COLOR_MAP,
   INK_TEXT_COLOR_HEX,
   MILESTONE_FLASH_COLOR_HEX,
+  NIGHT_BASE_BRIGHTNESS_FACTOR,
+  NIGHT_DIM_OVERLAY_COLOR_HEX,
   SCENE_BACKGROUND_PALETTES,
   WALLET_LEATHER_COLORS,
   assertDesignTokenCoverage,
@@ -47,6 +49,11 @@ describe('设计令牌快照（与设计稿 D4 一致）', () => {
     expect(() => assertDesignTokenCoverage()).not.toThrow();
     expect(DENOMINATION_COLOR_MAP['denomination-100'].baseColorHex).toBe('#E8C37E');
     expect(CASH_DENOMINATIONS.length).toBe(Object.keys(DENOMINATION_COLOR_MAP).length);
+  });
+
+  it('夜间基调令牌快照（sleep-mode 规格）', () => {
+    expect(NIGHT_BASE_BRIGHTNESS_FACTOR).toBe(0.55);
+    expect(NIGHT_DIM_OVERLAY_COLOR_HEX).toBe('#181109');
   });
 });
 

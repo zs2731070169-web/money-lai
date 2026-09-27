@@ -507,6 +507,7 @@ function paintSettingsPage(
     { action: 'toggle-sound', label: '音效', on: settings.soundEnabled },
     { action: 'toggle-bgm', label: '背景音乐', on: settings.bgmEnabled },
     { action: 'toggle-haptics', label: '触觉反馈', on: settings.hapticsEnabled },
+    { action: 'toggle-bedtime-mode', label: '晚安模式', on: settings.bedtimeModeEnabled ?? false },
     { action: 'open-privacy', label: '隐私政策', on: null },
   ];
   for (const button of layout.buttons) {

@@ -7,8 +7,11 @@ import {
   TouchPhase,
 } from './platform';
 import {
+  BEDTIME_WALLET_FLAP_MOTION_PROFILE,
+  DAYTIME_WALLET_FLAP_MOTION_PROFILE,
   WALLET_FLAP_OPEN_THRESHOLD,
   WalletFlapEffect,
+  WalletFlapMotionProfile,
   advanceWalletFlap,
   createInitialWalletFlapState,
 } from './wallet/flap-state';
@@ -20,9 +23,12 @@ import {
   walletFlapRotationDegrees,
 } from './wallet/flap-hit-test';
 import {
+  BEDTIME_CASH_DRAW_MOTION_PROFILE,
   CASH_BILL_LOGICAL_HEIGHT,
   CASH_DRAW_GESTURE_SLOP_DISTANCE,
   CashDrawEffect,
+  CashDrawMotionProfile,
+  DAYTIME_CASH_DRAW_MOTION_PROFILE,
   advanceCashDrawSession,
   createInitialCashDrawState,
   isPointInsideCashGrabArea,
@@ -54,10 +60,26 @@ import {
   setBgmEnabled as setBgmEnabledSetting,
   setHapticsEnabled as setHapticsEnabledSetting,
   setSoundEnabled as setSoundEnabledSetting,
+  setBedtimeModeEnabled,
 } from './meta/settings';
+import {
+  resolvePresentationDecision,
+  resolveSessionHapticTier,
+} from './sleep/presentation-gate';
+import {
+  SLEEP_NIGHT_BASE_BRIGHTNESS,
+  SleepArcState,
+  advanceSleepArc,
+  createInitialSleepArcState,
+} from './sleep/sleep-arc';
+import {
+  appendNightlySleepRecord,
+  sealBedtimeSession as buildBedtimeSealRecord,
+} from './sleep/ledger';
 import {
   DrawerStage,
   OverlayLayout,
+  computeMorningCardLayout,
   computeOverlayLayout,
   overlayPageDataCacheKey,
   resolveOverlayHit,
@@ -70,6 +92,7 @@ import {
   drawDrawerPanelLayerArt,
   paintFloatingToasts,
   paintMetaOverlay,
+  paintMorningCard,
 } from './render/overlay-painter';
 import { AudioEngine } from './audio/engine';
 import {
@@ -85,7 +108,6 @@ import {
 } from './render/flap-projection';
 import { INK_TEXT_COLOR_HEX, resolveSceneBrightness } from './render/design-tokens';
 import { paintNightDimOverlay } from './render/night-dim-painter';
-import { SLEEP_NIGHT_BASE_BRIGHTNESS } from './sleep/sleep-arc';
 import {
   FlapFaceSurfaces,
   drawFlapBackFaceArt,
@@ -139,6 +161,14 @@ export interface GameDependencies {
 /** 缓出三次：抽出/收回动画的减速曲线 */
 function easeOutCubic(progress: number): number {
   return 1 - Math.pow(1 - progress, 3);
+}
+
+/** epoch 毫秒 → 本地日期 ISO 字符串（yyyy-mm-dd，睡眠账本按日展示；Date 为 JS 标准非平台 API） */
+function toLocalIsoDateString(epochMs: number): string {
+  const localDate = new Date(epochMs);
+  const month = String(localDate.getMonth() + 1).padStart(2, '0');
+  const day = String(localDate.getDate()).padStart(2, '0');
+  return `${localDate.getFullYear()}-${month}-${day}`;
 }
 
 /** 缓入三次：抽屉滑出的加速离开曲线 */
@@ -196,10 +226,24 @@ export class Game {
   private lastPointerTimestampMs = 0;
   private pointerSpeedPixelsPerSecond = 0;
   private reducedMotionEnabled = false;
-  /** 晚安会话是否进行中（sleep-mode 规格；任务 5.x 由设置开关与时间窗建议驱动） */
+  /** 晚安会话是否进行中（sleep-mode 规格；由设置开关与时间窗建议驱动） */
   private bedtimeSessionActive = false;
-  /** 熄灭弧线当前亮度系数（sleep-mode 规格；1=夜间基准；任务 5.x 由 sleep-arc 推进） */
+  /** 睡眠弧线状态（晚安会话期间的熄灭时序；会话外为 null） */
+  private sleepArcState: SleepArcState | null = null;
+  /** 晚安会话进入时刻（epoch ms；null=未在会话） */
+  private bedtimeSessionStartedAtMs: number | null = null;
+  /** 进入晚安模式时的会话进度快照（封存增量基准，里程表显示延续不清零） */
+  private bedtimeSessionEntryProgress = createInitialSessionProgress();
+  /** 本夜是否已封存（幂等：熄灭封存后主动退出不重复记账） */
+  private bedtimeSessionSealed = false;
+  /** 熄灭弧线目标亮度系数（1=夜间基准；由 sleep-arc 推进） */
   private sleepArcBrightness = SLEEP_NIGHT_BASE_BRIGHTNESS;
+  /** 熄灭弧线显示亮度（向目标缓动，恢复时数秒级温和过渡不骤变） */
+  private displayedSleepArcBrightness = SLEEP_NIGHT_BASE_BRIGHTNESS;
+  /** 早安卡呈现中（sleep-mode：封存后的下一次冷启动/回前台一次性呈现） */
+  private morningCardVisible = false;
+  /** 夜间时间窗建议轻提示（22:00-05:00 冷启动一次，可点按进入晚安模式） */
+  private bedtimeSuggestionToast: FloatingToastView | null = null;
   /** 本轮抽钞是否已播放过唯一一次抓取沙响（规格 v2.6：一抓一声） */
   private billGrabRustlePlayed = false;
   private firstDrawGuidanceDismissed = false;
@@ -246,6 +290,15 @@ export class Game {
     this.audioEngine.setSoundEnabled(this.persistedState.settings.soundEnabled);
     // 冷启动同步 BGM 设置到引擎（避免引擎内部默认 true 绕过用户设置自行起播）
     this.audioEngine.setBgmEnabled(this.persistedState.settings.bgmEnabled);
+    // 晚安模式开关持久化（sleep-mode 规格）：开启下冷启动仍处于夜间剖面，
+    // 夜间会话计数从零开始（会话数据不落盘）
+    if (this.persistedState.settings.bedtimeModeEnabled) {
+      this.enterBedtimeSession(this.platformAdapter.nowMilliseconds());
+    }
+    // 封存记录待呈现 → 早安卡一次性呈现（熄灭封存才触发）
+    this.tryPresentMorningCard();
+    // 夜间时间窗建议：22:00-05:00 冷启动且未处于晚安模式 → 一次可忽略轻提示
+    this.maybeQueueBedtimeSuggestion();
     // 冷启动即尝试启用音频并起播 BGM（boot-wallet-autoplay-bgm）：
     // 平台允许无手势自动播放时立即出声；要求手势时 resume 失败静默降级，首触后再起播
     this.tryUnlockAudio();
@@ -253,7 +306,13 @@ export class Game {
     this.platformAdapter.onTouch((phase, point) => this.handleTouch(phase, point));
     this.platformAdapter.onAppVisibilityChange((visible) => {
       this.audioEngine.handleAppVisibilityChange(visible);
-      if (!visible) {
+      if (visible) {
+        // 回前台：待呈现早安卡补呈现；熄灭态下恢复静音方向（BGM 重启会把增益拉回）
+        this.tryPresentMorningCard();
+        if (this.bedtimeSessionActive && this.sleepArcState && this.sleepArcState.phase !== 'idle') {
+          this.audioEngine.beginSleepDimFadeOut();
+        }
+      } else {
         this.persistMetaProgress();
       }
     });
@@ -275,6 +334,20 @@ export class Game {
     const nowMs = this.platformAdapter.nowMilliseconds();
 
     if (phase === 'start') {
+      // 早安卡呈现中：全部触摸只路由到卡片（点「开始新的一天」关闭，其余忽略）
+      if (this.morningCardVisible) {
+        const morningCardLayout = computeMorningCardLayout(viewport.width, viewport.height);
+        const dismissRect = morningCardLayout.dismissButtonRect;
+        if (
+          point.positionX >= dismissRect.left &&
+          point.positionX <= dismissRect.left + dismissRect.width &&
+          point.positionY >= dismissRect.top &&
+          point.positionY <= dismissRect.top + dismissRect.height
+        ) {
+          this.dismissMorningCard();
+        }
+        return;
+      }
       // 抽屉打开：主场景手势无条件短路（含开抽屉后首帧布局尚未构建的窗口——
       // 布局为 null 时触摸作废而非落回主场景路由，审查实测曾放过抽钞计数）
       if (this.drawerSession !== null) {
@@ -293,6 +366,20 @@ export class Game {
       this.activePointerId = point.pointerId;
       this.tryUnlockAudio();
       const touchPoint: Point2D = { x: point.positionX, y: point.positionY };
+      // 夜间时间窗建议命中：点按进入晚安模式（建议热区与轻提示绘制锚点同源：topY-76 起绘制）
+      if (this.bedtimeSuggestionToast !== null) {
+        const suggestionHit =
+          Math.abs(point.positionX - viewport.width / 2) <= viewport.width * 0.42 &&
+          point.positionY >= layout.odometerAnchor.topY - 80 &&
+          point.positionY <= layout.odometerAnchor.topY - 40;
+        if (suggestionHit) {
+          this.bedtimeSuggestionToast = null;
+          this.enterBedtimeSession(nowMs);
+          return;
+        }
+      }
+      // 晚安会话唤醒：任意触摸恢复基准亮度与音频并重置熄灭计时（不退出晚安模式）
+      this.noteBedtimeInteraction(nowMs);
       // 元进程入口（右上角汉堡图标）：唤出抽屉菜单首屏
       const metaEntryDistance = Math.hypot(
         point.positionX - layout.metaEntryAnchor.centerX,
@@ -383,13 +470,17 @@ export class Game {
         this.flapState = swipeUpdate.state;
         this.consumeFlapEffects(swipeUpdate.effects);
       } else if (this.gestureKind === 'bill') {
-        // 屏幕像素 → 状态机的逻辑纸币高度换算（比例语义一致）
+        // 屏幕像素 → 状态机的逻辑纸币高度换算（比例语义一致）；跟手增益按会话剖面注入
         const logicalDelta =
           (deltaYUpPixels / layout.activeBillHeight) * CASH_BILL_LOGICAL_HEIGHT;
-        const dragUpdate = advanceCashDrawSession(this.cashSession, {
-          type: 'drag',
-          dragDeltaY: logicalDelta,
-        });
+        const dragUpdate = advanceCashDrawSession(
+          this.cashSession,
+          {
+            type: 'drag',
+            dragDeltaY: logicalDelta,
+          },
+          this.resolveCashDrawMotionProfile(),
+        );
         this.cashSession = dragUpdate.state;
         this.consumeCashEffects(dragUpdate.effects);
         // 一抓一声：仅在首次移动瞬间播放唯一一次沙响，此后拖拽全程静音（v2.6）
@@ -505,6 +596,17 @@ export class Game {
         this.persistMetaProgress();
         return;
       }
+      case 'toggle-bedtime-mode': {
+        const nextEnabled = !this.persistedState.settings.bedtimeModeEnabled;
+        this.persistedState = setBedtimeModeEnabled(this.persistedState, nextEnabled);
+        if (nextEnabled) {
+          this.enterBedtimeSession(this.platformAdapter.nowMilliseconds());
+        } else {
+          this.exitBedtimeSession(this.platformAdapter.nowMilliseconds());
+        }
+        this.persistMetaProgress();
+        return;
+      }
       case 'toggle-haptics': {
         const nextEnabled = !this.persistedState.settings.hapticsEnabled;
         this.persistedState = setHapticsEnabledSetting(this.persistedState, nextEnabled);
@@ -610,9 +712,128 @@ export class Game {
     void effects;
   }
 
+  // ===== 晚安会话（sleep-mode 规格）：进入/退出/封存/唤醒/早安卡/时间窗建议 =====
+
+  /** 当前翻盖运动剖面：晚安会话用夜间剖面（更慢更粘），日间保持现值 */
+  private resolveFlapMotionProfile(): WalletFlapMotionProfile {
+    return this.bedtimeSessionActive
+      ? BEDTIME_WALLET_FLAP_MOTION_PROFILE
+      : DAYTIME_WALLET_FLAP_MOTION_PROFILE;
+  }
+
+  /** 当前抽钞运动剖面：晚安会话 0.75 增益（更粘），日间完全跟手 */
+  private resolveCashDrawMotionProfile(): CashDrawMotionProfile {
+    return this.bedtimeSessionActive
+      ? BEDTIME_CASH_DRAW_MOTION_PROFILE
+      : DAYTIME_CASH_DRAW_MOTION_PROFILE;
+  }
+
+  /** 进入晚安会话：夜间剖面 + 音频睡眠编排 + 熄灭弧线起算；里程表显示延续 */
+  private enterBedtimeSession(nowMs: number): void {
+    if (this.bedtimeSessionActive) return;
+    this.bedtimeSessionActive = true;
+    this.bedtimeSessionStartedAtMs = nowMs;
+    this.bedtimeSessionEntryProgress = { ...this.sessionProgress };
+    this.bedtimeSessionSealed = false;
+    this.sleepArcState = createInitialSleepArcState(nowMs);
+    this.sleepArcBrightness = SLEEP_NIGHT_BASE_BRIGHTNESS;
+    this.displayedSleepArcBrightness = SLEEP_NIGHT_BASE_BRIGHTNESS;
+    this.audioEngine.setBedtimeAudioProfile(true);
+  }
+
+  /** 退出晚安会话：未封存则按主动退出封存（无入睡点、不触发早安卡），恢复日间剖面 */
+  private exitBedtimeSession(nowMs: number): void {
+    if (!this.bedtimeSessionActive) return;
+    this.sealCurrentBedtimeSession(null, nowMs);
+    this.bedtimeSessionActive = false;
+    this.bedtimeSessionStartedAtMs = null;
+    this.sleepArcState = null;
+    this.sleepArcBrightness = SLEEP_NIGHT_BASE_BRIGHTNESS;
+    this.displayedSleepArcBrightness = SLEEP_NIGHT_BASE_BRIGHTNESS;
+    this.audioEngine.setBedtimeAudioProfile(false);
+    // 熄灭态下退出：音频随亮度恢复（若曾在熄灭中）
+    this.audioEngine.recoverFromSleepDimFade();
+  }
+
+  /** 封存本夜（幂等）：增量 = 当前会话进度 − 进入时快照；入睡点为空即主动退出变体 */
+  private sealCurrentBedtimeSession(sleepPointMs: number | null, nowMs: number): void {
+    if (!this.bedtimeSessionActive || this.bedtimeSessionSealed) return;
+    if (this.bedtimeSessionStartedAtMs === null) return;
+    const sealResult = buildBedtimeSealRecord({
+      startedAtMs: this.bedtimeSessionStartedAtMs,
+      sessionProgressAtEntry: this.bedtimeSessionEntryProgress,
+      sessionProgressAtExit: this.sessionProgress,
+      sleepPointMs,
+      localDateString: toLocalIsoDateString(nowMs),
+    });
+    this.persistedState = {
+      ...this.persistedState,
+      sleepLedger: appendNightlySleepRecord(
+        this.persistedState.sleepLedger ?? [],
+        sealResult.record,
+      ),
+      pendingMorningCardRecordId: sealResult.morningCardPending
+        ? sealResult.record.recordId
+        : (this.persistedState.pendingMorningCardRecordId ?? null),
+    };
+    this.bedtimeSessionSealed = true;
+    this.persistMetaProgress();
+  }
+
+  /** 晚安会话内的交互/唤醒触摸：恢复基准亮度与音频、重置熄灭计时（不退出会话） */
+  private noteBedtimeInteraction(nowMs: number): void {
+    if (!this.bedtimeSessionActive || !this.sleepArcState) return;
+    const wasDimming = this.sleepArcState.phase !== 'idle';
+    const wakeUpdate = advanceSleepArc(this.sleepArcState, { type: 'interaction', nowMs });
+    this.sleepArcState = wakeUpdate.state;
+    this.sleepArcBrightness = wakeUpdate.brightness;
+    if (wasDimming) {
+      this.audioEngine.recoverFromSleepDimFade();
+    }
+  }
+
+  /** 早安卡补呈现：待呈现记录存在即显示（冷启动/回前台一次性） */
+  private tryPresentMorningCard(): void {
+    if (this.morningCardVisible) return;
+    const pendingRecordId = this.persistedState.pendingMorningCardRecordId;
+    if (!pendingRecordId) return;
+    const pendingRecord = (this.persistedState.sleepLedger ?? []).find(
+      (record) => record.recordId === pendingRecordId,
+    );
+    if (!pendingRecord) {
+      // 待呈现记录已不存在（损坏清账本等）：清掉悬空标记
+      this.persistedState = { ...this.persistedState, pendingMorningCardRecordId: null };
+      this.persistMetaProgress();
+      return;
+    }
+    this.morningCardVisible = true;
+  }
+
+  /** 关闭早安卡：清待呈现标记并持久化（同记录不再重复呈现） */
+  private dismissMorningCard(): void {
+    this.morningCardVisible = false;
+    this.persistedState = { ...this.persistedState, pendingMorningCardRecordId: null };
+    this.persistMetaProgress();
+  }
+
+  /** 夜间时间窗建议（22:00-05:00 冷启动一次；点按进入晚安模式） */
+  private maybeQueueBedtimeSuggestion(): void {
+    if (this.bedtimeSessionActive || this.bedtimeSuggestionToast !== null) return;
+    const localHour = new Date().getHours();
+    if (localHour >= 22 || localHour < 5) {
+      this.bedtimeSuggestionToast = {
+        text: '睡不着？点按试试「晚安模式」',
+        startedAtMs: this.platformAdapter.nowMilliseconds(),
+      };
+    }
+  }
+
   private triggerHaptic(level: HapticImpactLevel): void {
     if (this.persistedState.settings.hapticsEnabled) {
-      this.platformAdapter.triggerHapticImpact(level);
+      // 晚安会话触觉降为最轻档（sleep-mode「夜间交互剖面」）
+      this.platformAdapter.triggerHapticImpact(
+        resolveSessionHapticTier(level, this.bedtimeSessionActive),
+      );
     }
   }
 
@@ -629,14 +850,51 @@ export class Game {
     this.platformAdapter.requestFrame((nextTimestampMs) => this.frameLoop(nextTimestampMs));
   }
 
-  /** 每帧逻辑：抽屉开合相位/折叠时间线/抽钞动画计时/里程表/呼吸/背景/飘落/闪色/BGM 前瞻 */
+  /** 每帧逻辑：抽屉开合相位/折叠时间线/抽钞动画计时/里程表/呼吸/背景/飘落/闪色/BGM 前瞻/睡眠弧线 */
   private stepPerFrame(deltaMs: number): void {
     this.advanceDrawerSession();
-    // 翻盖自主折叠时间线推进（缓入缓出，状态机内完成转向/收敛判定）
-    this.flapState = advanceWalletFlap(this.flapState, {
-      type: 'advance',
-      deltaMs,
-    }).state;
+
+    // 睡眠弧线推进（sleep-mode 规格）：单调时钟推算熄灭/渐暗；跨阈值跳变可补判（锁屏恢复）；
+    // 进入渐暗即启动音频同步淡出；首次到达近黑 = 入睡点，封存本夜（幂等）
+    if (this.bedtimeSessionActive && this.sleepArcState) {
+      const sleepNowMs = this.platformAdapter.nowMilliseconds();
+      const previousPhase = this.sleepArcState.phase;
+      const sleepUpdate = advanceSleepArc(this.sleepArcState, {
+        type: 'advance',
+        nowMs: sleepNowMs,
+      });
+      this.sleepArcState = sleepUpdate.state;
+      this.sleepArcBrightness = sleepUpdate.brightness;
+      if (previousPhase === 'idle' && sleepUpdate.state.phase === 'dimming') {
+        this.audioEngine.beginSleepDimFadeOut();
+      }
+      if (sleepUpdate.reachedSleepPoint) {
+        this.sealCurrentBedtimeSession(sleepNowMs, sleepNowMs);
+      }
+      // 显示亮度向目标缓动（数秒级温和过渡；熄灭渐变期弧线本身线性、缓动不改变单调性）
+      this.displayedSleepArcBrightness +=
+        (this.sleepArcBrightness - this.displayedSleepArcBrightness) *
+        Math.min(1, deltaMs / 2500);
+    }
+
+    // 时间窗建议到期离场（自动淡出后不再命中）
+    if (
+      this.bedtimeSuggestionToast &&
+      this.platformAdapter.nowMilliseconds() - this.bedtimeSuggestionToast.startedAtMs >
+        TOAST_TOTAL_DURATION_MS
+    ) {
+      this.bedtimeSuggestionToast = null;
+    }
+
+    // 翻盖自主折叠时间线推进（缓入缓出，状态机内完成转向/收敛判定；剖面按会话注入）
+    this.flapState = advanceWalletFlap(
+      this.flapState,
+      {
+        type: 'advance',
+        deltaMs,
+      },
+      this.resolveFlapMotionProfile(),
+    ).state;
 
     // 抽钞完成/回收动画到时结算（完成路径触发计数与元进程结算）
     const nowMs = this.platformAdapter.nowMilliseconds();
@@ -745,7 +1003,13 @@ export class Game {
     const skinUnlockEvaluation = evaluateSkinUnlocks(this.persistedState);
     this.persistedState = skinUnlockEvaluation.state;
     for (const unlockedSkin of skinUnlockEvaluation.newlyUnlocked) {
-      this.enqueueFloatingToast(`解锁皮肤 · ${unlockedSkin.displayName}`);
+      // 夜间解锁提示全静默（判定照常写入；呈现门控，sleep-mode 规格）
+      if (
+        resolvePresentationDecision('skin-unlock-toast', this.bedtimeSessionActive, 'light')
+          .present
+      ) {
+        this.enqueueFloatingToast(`解锁皮肤 · ${unlockedSkin.displayName}`);
+      }
     }
     const achievementEvaluation = evaluateAchievements(this.persistedState);
     this.persistedState = achievementEvaluation.state;
@@ -753,7 +1017,11 @@ export class Game {
       const achievementDefinition = ACHIEVEMENT_COLLECTION.find(
         (definition) => definition.id === achievementId,
       );
-      if (achievementDefinition) {
+      if (
+        achievementDefinition &&
+        resolvePresentationDecision('achievement-toast', this.bedtimeSessionActive, 'light')
+          .present
+      ) {
         this.enqueueFloatingToast(`成就达成 · ${achievementDefinition.displayName}`);
       }
     }
@@ -771,9 +1039,15 @@ export class Game {
     this.triggerHaptic('light');
 
     if (this.sessionProgress.sessionCount % 100 === 0) {
-      this.audioEngine.playMilestoneTok();
-      this.triggerHaptic('medium');
-      this.milestoneFlashElapsedMs = 0;
+      // 里程碑庆祝（动效+音效+触觉）夜间全静默，判定照常（sleep-mode 规格）
+      if (
+        resolvePresentationDecision('milestone-celebration', this.bedtimeSessionActive, 'medium')
+          .present
+      ) {
+        this.audioEngine.playMilestoneTok();
+        this.triggerHaptic('medium');
+        this.milestoneFlashElapsedMs = 0;
+      }
       this.streakCount = 0;
     }
   }
@@ -823,6 +1097,12 @@ export class Game {
     drawerStage: string | null;
     audioUnlocked: boolean;
     bgmPlaying: boolean;
+    /** sleep-mode（bedtime-money-counting）：夜间会话/弧线/封存/早安卡冒烟字段 */
+    bedtimeSessionActive: boolean;
+    sleepArcPhase: string | null;
+    sleepLedgerNightCount: number;
+    morningCardPending: boolean;
+    morningCardVisible: boolean;
   } {
     return {
       walletOpen: this.flapState.phase === 'open',
@@ -837,6 +1117,12 @@ export class Game {
       drawerStage: this.drawerSession?.stage ?? null,
       audioUnlocked: this.audioEngine.isUnlocked(),
       bgmPlaying: this.audioEngine.isPlayingBgm(),
+      bedtimeSessionActive: this.bedtimeSessionActive,
+      sleepArcPhase: this.sleepArcState?.phase ?? null,
+      sleepLedgerNightCount: (this.persistedState.sleepLedger ?? []).length,
+      morningCardPending: this.persistedState.pendingMorningCardRecordId !== null &&
+        this.persistedState.pendingMorningCardRecordId !== undefined,
+      morningCardVisible: this.morningCardVisible,
     };
   }
 
@@ -1135,8 +1421,34 @@ export class Game {
     // 各画师输出零改动；日间（亮度恒 1）不加叠层，渲染输出与既有完全一致。
     const sceneBrightness = resolveSceneBrightness(
       this.bedtimeSessionActive,
-      this.sleepArcBrightness,
+      this.displayedSleepArcBrightness,
     );
     paintNightDimOverlay(renderingContext, viewport.width, viewport.height, sceneBrightness);
+
+    // 时间窗建议轻提示（提示队列之下独立锚点；自动淡出、点按进入晚安模式）
+    if (this.bedtimeSuggestionToast && this.drawerSession === null) {
+      paintFloatingToasts(
+        renderingContext,
+        [this.bedtimeSuggestionToast],
+        this.platformAdapter.nowMilliseconds(),
+        layout.odometerAnchor.topY - 76,
+        viewport.width,
+      );
+    }
+
+    // 早安卡（sleep-mode 规格）：熄灭封存后一次性呈现，绘制于熄灭叠层之上保持可读
+    if (this.morningCardVisible) {
+      const pendingRecordId = this.persistedState.pendingMorningCardRecordId;
+      const pendingRecord = (this.persistedState.sleepLedger ?? []).find(
+        (record) => record.recordId === pendingRecordId,
+      );
+      if (pendingRecord) {
+        paintMorningCard(
+          renderingContext,
+          computeMorningCardLayout(viewport.width, viewport.height),
+          pendingRecord,
+        );
+      }
+    }
   }
 }

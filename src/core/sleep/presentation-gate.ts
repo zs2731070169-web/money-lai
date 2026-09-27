@@ -18,7 +18,7 @@ export type PresentableFeedback =
   | 'consecutive-draw-pitch-rise';
 
 /** 触觉档位（与平台三档对齐的内核镜像，避免 core 依赖平台类型） */
-export type PresentationHapticTier = 'light' | 'medium' | 'strong';
+export type PresentationHapticTier = 'light' | 'medium' | 'heavy';
 
 export interface PresentationDecision {
   /** 是否呈现该反馈（false = 完全静默，音效/触觉/浮层均不发射） */

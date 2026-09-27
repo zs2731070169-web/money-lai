@@ -35,6 +35,7 @@ export interface OverlayButton {
     | 'toggle-sound'
     | 'toggle-bgm'
     | 'toggle-haptics'
+    | 'toggle-bedtime-mode'
     | 'open-privacy'
     | 'select-skin';
   /** 命中矩形（含皮肤卡等动态项；坐标基于完全展开的抽屉位置） */
@@ -151,6 +152,7 @@ export function computeOverlayLayout(
         ['toggle-sound', '音效'],
         ['toggle-bgm', '背景音乐'],
         ['toggle-haptics', '触觉反馈'],
+        ['toggle-bedtime-mode', '晚安模式'],
         ['open-privacy', '隐私政策'],
       ] as Array<[OverlayButton['action'], string]>
     ).forEach(([action, label], rowIndex) => {

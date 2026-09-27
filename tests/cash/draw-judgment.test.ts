@@ -33,9 +33,9 @@ describe('抽钞判定：抓取与跟手位移', () => {
     expect(grabUpdate.state.phase).toBe('dragging');
   });
 
-  it('向上拖拽换算为抽出比例（0.5 张高度 → 0.5）', () => {
+  it('向上拖拽换算为抽出比例（0.5 张高度 × 0.75 跟手增益 → 0.375，更粘）', () => {
     const { finalState } = grabAndDrag([CASH_BILL_LOGICAL_HEIGHT * 0.5]);
-    expect(finalState.pulledOutRatio).toBeCloseTo(0.5, 5);
+    expect(finalState.pulledOutRatio).toBeCloseTo(0.375, 5);
   });
 
   it('抽出比例钳制在 1（拖出超过整张不越界）', () => {

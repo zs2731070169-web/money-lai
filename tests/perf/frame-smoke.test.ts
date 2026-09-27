@@ -155,8 +155,8 @@ describe('性能冒烟与主链路集成（开钱包 → 连抽）', () => {
       headless.advanceFrame();
     }
     headless.emitTouch('end', 200, 320);
-    for (let frameIndex = 0; frameIndex < 70; frameIndex += 1) {
-      headless.advanceFrame(); // 缓入缓出自主折叠（开 1.0s ≈ 60 帧，留余量）
+    for (let frameIndex = 0; frameIndex < 120; frameIndex += 1) {
+      headless.advanceFrame(); // 缓入缓出自主折叠（daytime-comfort 开 1.68s ≈ 101 帧，留余量）
     }
     const openedSnapshot = game.getSmokeTestSnapshot();
     if (!openedSnapshot.walletOpen) {
@@ -170,9 +170,9 @@ describe('性能冒烟与主链路集成（开钱包 → 连抽）', () => {
     const grabY = smokeLayout.walletFoldLineY - 20;
     for (let drawIndex = 0; drawIndex < 10; drawIndex += 1) {
       headless.emitTouch('start', 200, grabY);
-      headless.emitTouch('move', 200, grabY - 40);
-      headless.emitTouch('move', 200, grabY - 160);
-      headless.emitTouch('end', 200, grabY - 160);
+      headless.emitTouch('move', 200, grabY - 60);
+      headless.emitTouch('move', 200, grabY - 220);
+      headless.emitTouch('end', 200, grabY - 220);
       for (let frameIndex = 0; frameIndex < 34; frameIndex += 1) {
         headless.advanceFrame(); // ≈570ms：超过完成动画时长
       }

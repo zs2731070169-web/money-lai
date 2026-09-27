@@ -98,11 +98,11 @@ describe('轻提示排队逐个显示', () => {
     harness.touch('start', 201, 437);
     harness.touch('move', 201, 407);
     harness.touch('end', 201, 407);
-    harness.frames(75);
+    harness.frames(120); // 开盖折叠 1680ms（daytime-comfort）
     harness.touch('start', 200, 612);
     harness.touch('move', 200, 552);
-    harness.touch('move', 200, 452);
-    harness.touch('end', 200, 452);
+    harness.touch('move', 200, 392); // 累计 220px 行程：0.75 跟手增益下稳过完成阈值
+    harness.touch('end', 200, 392);
     harness.frames(40);
     expect(harness.game.getSmokeTestSnapshot().persistedLifetimeDrawCount).toBe(100);
 

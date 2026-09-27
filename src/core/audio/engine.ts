@@ -106,10 +106,15 @@ export class AudioEngine {
       const masterGainNode = audioContext.createGain();
       masterGainNode.gain.value = AUDIO_SYNTHESIS_PARAMETERS.masterBus.masterGain;
 
+      // 操作音效软化总线（daytime-comfort-baseline：SFX 语音统一经 0.6 增益汇入全局链）
+      const sfxBusGainNode = audioContext.createGain();
+      sfxBusGainNode.gain.value = AUDIO_SYNTHESIS_PARAMETERS.sfxBus.busGain;
+      sfxBusGainNode.connect(globalLowpassFilter);
+
       globalLowpassFilter.connect(compressorNode);
       compressorNode.connect(masterGainNode);
       masterGainNode.connect(audioContext.destination);
-      this.busInputNode = globalLowpassFilter;
+      this.busInputNode = sfxBusGainNode;
 
       // BGM 子总线：汇入同一总线链，但增益显著低于操作音效（规格）
       const bgmGainNode = audioContext.createGain();
@@ -252,6 +257,7 @@ export class AudioEngine {
       chordDurationSeconds: AUDIO_SYNTHESIS_PARAMETERS.bgm.chordDurationSeconds,
       melodyMinIntervalSeconds: AUDIO_SYNTHESIS_PARAMETERS.bgm.melodyMinIntervalSeconds,
       melodyMaxIntervalSeconds: AUDIO_SYNTHESIS_PARAMETERS.bgm.melodyMaxIntervalSeconds,
+      melodyCeilingMidi: AUDIO_SYNTHESIS_PARAMETERS.bgm.melodyCeilingMidi,
     });
     this.bgmScheduleOriginSeconds = currentSeconds;
     this.bgmPlaying = true;

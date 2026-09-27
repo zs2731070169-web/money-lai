@@ -15,6 +15,9 @@ export const CASH_DRAW_COMPLETE_THRESHOLD = 0.35;
 /** 抽钞意图判定的手势容差（逻辑像素）：未达此值不开始抓取 */
 export const CASH_DRAW_GESTURE_SLOP_DISTANCE = 2;
 
+/** 拖拽跟手增益：1=完全跟手；0.75=更粘（daytime-comfort-baseline 实测反馈：柔性延迟略增更舒适） */
+export const CASH_DRAW_DRAG_GAIN = 0.75;
+
 /** 抓取热区宽容余量（逻辑像素）：未精确按住纸币也可抓取（规格 R5） */
 export const CASH_GRAB_MARGIN_PIXELS = 18;
 
@@ -81,7 +84,7 @@ export function advanceCashDrawSession(
       if (state.phase !== 'dragging') {
         return { state, effects: [] };
       }
-      const ratioDelta = event.dragDeltaY / CASH_BILL_LOGICAL_HEIGHT;
+      const ratioDelta = (event.dragDeltaY / CASH_BILL_LOGICAL_HEIGHT) * CASH_DRAW_DRAG_GAIN;
       const nextRatio = clampToUnitInterval(state.pulledOutRatio + ratioDelta);
       return {
         state: {

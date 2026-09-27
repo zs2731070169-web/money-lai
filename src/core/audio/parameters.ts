@@ -15,6 +15,10 @@ export interface AudioSynthesisParameters {
     masterGain: number;
     globalLowpassHertz: number;
   };
+  sfxBus: {
+    /** 操作音效总线增益：整体软化（daytime-comfort-baseline 实测反馈：×0.6 更舒适） */
+    busGain: number;
+  };
   walletClack: {
     attackRampMilliseconds: number;
     leatherFlexCenterHertz: number;
@@ -72,7 +76,9 @@ export interface AudioSynthesisParameters {
     chordDurationSeconds: number;
     melodyMinIntervalSeconds: number;
     melodyMaxIntervalSeconds: number;
-    /** BGM 总线增益（显著低于操作音效，约 -12dB 量级） */
+    /** 旋律发声音高顶棚（MIDI 60 = C4）：行走音按八度折叠至 ≤ 顶棚（daytime-comfort：低音域更舒适） */
+    melodyCeilingMidi?: number;
+    /** BGM 总线增益（显著低于操作音效） */
     bgmBusGain: number;
     fadeInSeconds: number;
     fadeOutSeconds: number;
@@ -88,6 +94,9 @@ export const AUDIO_SYNTHESIS_PARAMETERS: AudioSynthesisParameters = {
     compressorReleaseSeconds: 0.2,
     masterGain: 0.6,
     globalLowpassHertz: 7000,
+  },
+  sfxBus: {
+    busGain: 0.6,
   },
   walletClack: {
     attackRampMilliseconds: 5,
@@ -143,10 +152,11 @@ export const AUDIO_SYNTHESIS_PARAMETERS: AudioSynthesisParameters = {
   },
   bgm: {
     seed: 20260926,
-    chordDurationSeconds: 10,
-    melodyMinIntervalSeconds: 1,
-    melodyMaxIntervalSeconds: 4.5,
-    bgmBusGain: 0.16,
+    chordDurationSeconds: 14,
+    melodyMinIntervalSeconds: 2,
+    melodyMaxIntervalSeconds: 7,
+    melodyCeilingMidi: 60,
+    bgmBusGain: 0.095,
     fadeInSeconds: 2,
     fadeOutSeconds: 1.5,
   },

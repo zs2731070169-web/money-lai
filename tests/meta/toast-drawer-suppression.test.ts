@@ -90,13 +90,13 @@ describe('轻提示不压抽屉', () => {
     harness.touch('start', 200, layout.walletRect.top + 50);
     harness.touch('move', 200, layout.walletRect.top + 20);
     harness.touch('end', 200, layout.walletRect.top + 20);
-    harness.frames(75);
+    harness.frames(120); // 开盖折叠 1680ms（daytime-comfort）
     const visibleBill = billRectAtDrawRatio(layout.walletRect, layout.walletFoldLineY, 0);
     const billX = visibleBill.left + visibleBill.width / 2;
     const billY = visibleBill.top + 12;
     harness.touch('start', billX, billY);
-    harness.touch('move', billX, billY - 160);
-    harness.touch('end', billX, billY - 160);
+    harness.touch('move', billX, billY - 220);
+    harness.touch('end', billX, billY - 220);
     harness.frames(40);
     expect(harness.game.getSmokeTestSnapshot().sessionCount).toBe(1);
 

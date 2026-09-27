@@ -15,10 +15,10 @@ export const WALLET_FLAP_OPEN_THRESHOLD = 0.55;
 export const WALLET_FLAP_SWIPE_TRIGGER_DISTANCE = 28;
 
 /** 开启折叠时长（ms）：轻抛 → 爬升减速 → 重力荡过 → 阻尼着陆 */
-export const WALLET_FLAP_FOLD_OPEN_DURATION_MS = 1050;
+export const WALLET_FLAP_FOLD_OPEN_DURATION_MS = 1680;
 
 /** 关闭折叠时长（ms）：重力下落 → 缓冲垫着陆 */
-export const WALLET_FLAP_FOLD_CLOSE_DURATION_MS = 950;
+export const WALLET_FLAP_FOLD_CLOSE_DURATION_MS = 1520;
 
 export type WalletFlapPhase = 'closed' | 'pressing' | 'folding' | 'open';
 

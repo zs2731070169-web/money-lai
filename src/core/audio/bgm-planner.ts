@@ -23,6 +23,8 @@ export interface GenerativePianoPlannerParameters {
   chordDurationSeconds: number;
   melodyMinIntervalSeconds: number;
   melodyMaxIntervalSeconds: number;
+  /** 旋律高音顶棚（MIDI）：缺省 C5（72）；daytime-comfort 基线传 C4（60，低音域） */
+  melodyCeilingMidi?: number;
 }
 
 /** 和弦进行（MIDI 音符，低中区） */
@@ -80,6 +82,8 @@ export function createGenerativePianoPlanner(
   let melodyCursorSeconds = 0;
   let melodyScaleIndex = 4; // 原音阶下标 4 = 67（G4，行走进点）
   let melodyNoteCount = 0;
+  // 高音顶棚：缺省 C5，daytime-comfort 基线经参数传入 C4
+  const melodyCeilingMidi = parameters.melodyCeilingMidi ?? MELODY_CEILING_MIDI;
 
   return {
     get plannedUntilSeconds() {
@@ -146,8 +150,11 @@ export function createGenerativePianoPlanner(
 
         // 高音顶棚折下：游标按原音阶行走（轮廓不变），仅发声音高折叠（实测 v2.5）
         const walkedMidiNote = MELODY_SCALE_MIDI[melodyScaleIndex];
-        const soundedMidiNote =
-          walkedMidiNote > MELODY_CEILING_MIDI ? walkedMidiNote - 12 : walkedMidiNote;
+        // 按八度循环折叠直至不超顶棚（C4 顶棚下部分音折叠两个八度）
+        let soundedMidiNote = walkedMidiNote;
+        while (soundedMidiNote > melodyCeilingMidi) {
+          soundedMidiNote -= 12;
+        }
         events.push({
           startAtSeconds: melodyCursorSeconds,
           frequencyHertz: midiNoteToFrequencyHertz(soundedMidiNote),

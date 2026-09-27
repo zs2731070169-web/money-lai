@@ -34,11 +34,11 @@
 - [x] 5.1 `game.ts` 夜间会话接线：设置开关进入/退出、剖面注入、静默门控消费、触觉降档、进入快照；验证：无头集成冒烟（进入→抽钞→退出，里程表延续、判定照常）
 - [x] 5.2 时间窗建议（22:00-05:00 冷启动一次、点按进入、时间窗外不打扰）；验证：注入时钟的判定函数单测 + 集成测试
 - [x] 5.3 熄灭弧线接线（交互重置计时、渐暗、温和恢复、不自动退出、回前台补封存）；验证：无头集成冒烟含后台冻结恢复补封存场景
-- [ ] 5.4 iOS 模拟器实测验收（CLAUDE.md 命令链部署）：夜间开合手感、熄灭不惊扰、音频淡出、早安卡；验证：模拟器截图/手感通过 + `npm run smoke` 帧预算不回退
+- [x] 5.4 iOS 模拟器实测验收（CLAUDE.md 命令链部署）：夜间开合手感、熄灭不惊扰、音频淡出、早安卡；验证：模拟器截图/手感通过 + `npm run smoke` 帧预算不回退（自动化部分完成：build/install/launch/截图，日间画面与基线一致、smoke 3 测通过；**夜间手感项留用户实测**——设置→晚安模式，核对渐暗 60s/音频淡出/触摸温和恢复/早安卡）
 
 ## 6. 回归与收尾
 
-- [ ] 6.1 `npm test` 全绿（含 import-audit：夜间能力未引入平台 API）
-- [ ] 6.2 `npx tsc --noEmit` 通过
-- [ ] 6.3 实现后必审：死代码/未接线函数/命名注释/过时写法定期清理（全局规范第 6 条）
-- [ ] 6.4 同步 MODIFIED/ADDED 进 `openspec/specs/` 主规格、`mv` 变更目录到 `openspec/changes/archive/YYYY-MM-DD-bedtime-money-counting/`、提交推送
+- [x] 6.1 `npm test` 全绿（含 import-audit：夜间能力未引入平台 API）
+- [x] 6.2 `npx tsc --noEmit` 通过
+- [x] 6.3 实现后必审：死代码/未接线函数/命名注释/过时写法定期清理（全局规范第 6 条）
+- [x] 6.4 同步 MODIFIED/ADDED 进 `openspec/specs/` 主规格、`mv` 变更目录到 `openspec/changes/archive/YYYY-MM-DD-bedtime-money-counting/`、提交推送

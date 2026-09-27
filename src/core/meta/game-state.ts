@@ -1,7 +1,10 @@
 /**
  * 状态与持久化边界（cash-drawing「抽取进度会话化」+ platform-adaptation「状态持久化契约」）：
  * 会话内存态（金额/张数）MUST NOT 落盘；持久化只承载元进程与解锁用内部累计计数器。
+ * sleep-mode 扩展：睡眠账本与晚安模式开关随元进程落盘（v1 可选字段，字段级容错）。
  */
+
+import { NightlySleepRecord, isValidNightlySleepRecord } from '../sleep/ledger';
 
 export const PERSISTED_STATE_STORAGE_KEY = 'money-lai/state/v1';
 
@@ -9,6 +12,8 @@ export interface PersistedGameSettings {
   soundEnabled: boolean;
   bgmEnabled: boolean;
   hapticsEnabled: boolean;
+  /** 晚安模式开关（sleep-mode 规格；缺省 false，冷启动保持开关状态） */
+  bedtimeModeEnabled?: boolean;
 }
 
 export interface PersistedGameStateV1 {
@@ -26,6 +31,10 @@ export interface PersistedGameStateV1 {
   /** 已达成成就 id 集合 */
   achievements: string[];
   settings: PersistedGameSettings;
+  /** 睡眠小账本：逐夜记录仅追加（sleep-mode 规格；该字段损坏仅清账本、不连坐其余元进程） */
+  sleepLedger?: NightlySleepRecord[];
+  /** 早安卡待呈现的封存记录 id（null = 无待呈现；呈现并关闭后清除） */
+  pendingMorningCardRecordId?: string | null;
 }
 
 /** 会话级抽取进度（冷启动清零，不落盘） */
@@ -52,7 +61,9 @@ export function createInitialPersistedGameState(): PersistedGameStateV1 {
     activeWalletSkin: DEFAULT_SKIN_ID,
     activeBillSkin: null,
     achievements: [],
-    settings: { soundEnabled: true, bgmEnabled: true, hapticsEnabled: true },
+    settings: { soundEnabled: true, bgmEnabled: true, hapticsEnabled: true, bedtimeModeEnabled: false },
+    sleepLedger: [],
+    pendingMorningCardRecordId: null,
   };
 }
 
@@ -106,6 +117,24 @@ function migrateLegacyActiveSkin(candidate: Record<string, unknown>): PersistedG
   return migratedState;
 }
 
+/** 睡眠账本字段级容错（sleep-mode 规格：损坏仅清账本、不连坐其余元进程） */
+function extractValidSleepLedger(record: Record<string, unknown>): NightlySleepRecord[] {
+  const candidateLedger = record.sleepLedger;
+  if (!Array.isArray(candidateLedger)) return [];
+  // 任一条目结构不合法 → 整字段静默重置为空账本（规格口径）
+  const allEntriesValid = candidateLedger.every((entry) => isValidNightlySleepRecord(entry));
+  return allEntriesValid ? (candidateLedger as NightlySleepRecord[]) : [];
+}
+
+/** 早安卡待呈现标记容错：非字符串一律归 null */
+function extractValidPendingMorningCardRecordId(
+  record: Record<string, unknown>,
+): string | null {
+  return typeof record.pendingMorningCardRecordId === 'string'
+    ? record.pendingMorningCardRecordId
+    : null;
+}
+
 export function parsePersistedGameState(rawJson: string | null): ParsedPersistedState {
   if (rawJson === null) {
     return { state: createInitialPersistedGameState(), resetToInitial: false };
@@ -118,7 +147,21 @@ export function parsePersistedGameState(rawJson: string | null): ParsedPersisted
         typeof record.activeWalletSkin === 'string'
           ? (record as unknown as PersistedGameStateV1)
           : migrateLegacyActiveSkin(record);
-      return { state: migratedState, resetToInitial: false };
+      // sleep-mode 可选字段规范化：缺省补默认值，损坏字段静默降级不连坐
+      const settingsRecord = migratedState.settings as unknown as Record<string, unknown>;
+      const normalizedState: PersistedGameStateV1 = {
+        ...migratedState,
+        settings: {
+          ...migratedState.settings,
+          bedtimeModeEnabled:
+            typeof settingsRecord.bedtimeModeEnabled === 'boolean'
+              ? settingsRecord.bedtimeModeEnabled
+              : false,
+        },
+        sleepLedger: extractValidSleepLedger(record),
+        pendingMorningCardRecordId: extractValidPendingMorningCardRecordId(record),
+      };
+      return { state: normalizedState, resetToInitial: false };
     }
   } catch {
     // JSON 解析失败 → 损坏兜底

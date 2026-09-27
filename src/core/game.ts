@@ -92,6 +92,7 @@ import {
 } from './render/wallet-painter';
 import { billRectAtDrawRatio } from './render/bill-geometry';
 import { FlyingBillView, paintActiveBill, paintFlyingBill } from './render/bill-painter';
+import { advanceFlyingBills } from './render/flying-bills';
 import { paintAmountOdometer } from './render/odometer-painter';
 
 /**
@@ -112,10 +113,6 @@ const TOAST_QUEUED_STARTED_AT_MS = -1;
 const STREAK_WINDOW_MS = 2500;
 
 /** follow-through 飘落时长与行程（减弱动态时用短时长快速淡出） */
-const FLYING_BILL_DURATION_MS = 850;
-const FLYING_BILL_REDUCED_DURATION_MS = 220;
-const FLYING_BILL_RISE_PIXELS = 74;
-const FLYING_BILL_ALPHA_CUTOFF = 0.02;
 
 /** 里程碑蜜金闪色时长（ms） */
 const MILESTONE_FLASH_DURATION_MS = 600;
@@ -660,16 +657,10 @@ export class Game {
     }
     this.milestoneFlashElapsedMs += deltaMs;
 
-    const flyingDurationMs = this.reducedMotionEnabled
-      ? FLYING_BILL_REDUCED_DURATION_MS
-      : FLYING_BILL_DURATION_MS;
-    this.flyingBills = this.flyingBills.filter(
-      (flyingBill) => flyingBill.alpha > FLYING_BILL_ALPHA_CUTOFF,
-    );
-    for (const flyingBill of this.flyingBills) {
-      flyingBill.y -= (deltaMs / flyingDurationMs) * FLYING_BILL_RISE_PIXELS;
-      flyingBill.alpha = Math.max(0, flyingBill.alpha - deltaMs / flyingDurationMs);
-    }
+    // 飘落/升腾纸钞推进（纯函数：原 follow-through 行为逐字段不变，升腾为放飞扩展）
+    this.flyingBills = advanceFlyingBills(this.flyingBills, deltaMs, {
+      reducedMotion: this.reducedMotionEnabled,
+    });
 
     this.audioEngine.updateBgm();
 

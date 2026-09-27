@@ -180,16 +180,6 @@ describe('合成参数快照（调音必改快照，防漂移）', () => {
         fadeInSeconds: 2,
         fadeOutSeconds: 1.5,
       },
-      bedtimeArrangement: {
-        chordDurationSeconds: 14,
-        melodyMinIntervalSeconds: 2,
-        melodyMaxIntervalSeconds: 7,
-        melodyCeilingMidi: 60,
-        bgmBusGain: 0.095,
-        bgmDimFloorGain: 0.05,
-        sfxGainScale: 0.6,
-        dimFadeOutSeconds: 60,
-      },
     });
   });
 });

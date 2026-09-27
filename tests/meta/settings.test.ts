@@ -16,13 +16,12 @@ import {
  */
 
 describe('设置开关', () => {
-  it('默认全部开启（含晚安模式，bedtime-default-on 规格）', () => {
+  it('默认全部开启', () => {
     const initialState = createInitialPersistedGameState();
     expect(initialState.settings).toEqual({
       soundEnabled: true,
       bgmEnabled: true,
       hapticsEnabled: true,
-      bedtimeModeEnabled: true,
     });
   });
 

@@ -24,14 +24,12 @@ function createToastQueueHarness() {
   let frameCallback: ((timestampMs: number) => void) | null = null;
   let clockMs = 0;
   // 预置状态：累计 99 张、无成就无皮肤解锁——下一次抽钞（第 100 张）同时触发
-  // 皮肤解锁（bill-sage@100）与多个成就（first-draw + draw-count-100），制造多条并发提示。
-  // bedtime-default-on 后新装默认夜间剖面（更粘跟手）会改变本测试调好的抽钞行程，显式关闭。
+  // 皮肤解锁（bill-sage@100）与多个成就（first-draw + draw-count-100），制造多条并发提示
   const craftedState = {
     ...createInitialPersistedGameState(),
     lifetimeDrawCount: 99,
     unlockedSkins: ['wallet-classic'],
     achievements: [],
-    settings: { ...createInitialPersistedGameState().settings, bedtimeModeEnabled: false },
   };
   const persistedJson = serializePersistedGameState(craftedState);
   const gradient = { addColorStop() {} };

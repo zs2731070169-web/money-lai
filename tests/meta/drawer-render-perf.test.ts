@@ -87,7 +87,6 @@ describe('抽屉面板绘制（缓存层快路径 / 原样式慢路径）', () =
     skins: [],
     achievements: [],
     settings: createInitialPersistedGameState().settings,
-    sleepLedger: [],
   };
 
   const panelLayerSurface: OffscreenCanvasSurface = {

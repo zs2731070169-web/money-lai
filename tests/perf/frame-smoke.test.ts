@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { DAYTIME_BOOT_PERSISTED_JSON } from '../support/daytime-boot-state';
-import { PERSISTED_STATE_STORAGE_KEY } from '../../src/core/meta/game-state';
 import { Game } from '../../src/core/game';
 import { computeSceneLayout } from '../../src/core/render/scene-layout';
 import {
@@ -72,10 +70,7 @@ function createHeadlessPlatformAdapter() {
   const touchListeners: Array<(phase: TouchPhase, point: NormalizedTouchPoint) => void> = [];
   let frameCallback: ((timestampMs: number) => void) | null = null;
   let clockMs = 0;
-  // 日间启动存档种子：默认夜间剖面会改变主链路时序（bedtime-default-on）
-  const storage = new Map<string, string>([
-    [PERSISTED_STATE_STORAGE_KEY, DAYTIME_BOOT_PERSISTED_JSON],
-  ]);
+  const storage = new Map<string, string>();
 
   const adapter: PlatformAdapter = {
     createPrimaryCanvas(): PrimaryCanvas {

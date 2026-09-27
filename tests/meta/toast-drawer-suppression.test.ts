@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { DAYTIME_BOOT_PERSISTED_JSON } from '../support/daytime-boot-state';
 import { Game } from '../../src/core/game';
 import { billRectAtDrawRatio } from '../../src/core/render/bill-geometry';
 import { computeSceneLayout } from '../../src/core/render/scene-layout';
@@ -52,7 +51,7 @@ function createToastRecordingHarness() {
     createAudioContext: () => null,
     onAudioInterruption() {},
     triggerHapticImpact() {},
-    readPersistentValue: () => DAYTIME_BOOT_PERSISTED_JSON,
+    readPersistentValue: () => null,
     writePersistentValue() {},
     getSafeAreaInsets: () => SAFE_AREA,
     getLogicalViewportSize: () => VIEWPORT,

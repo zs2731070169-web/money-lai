@@ -23,8 +23,6 @@ export interface GenerativePianoPlannerParameters {
   chordDurationSeconds: number;
   melodyMinIntervalSeconds: number;
   melodyMaxIntervalSeconds: number;
-  /** 旋律高音顶棚（MIDI）：缺省 C5（72）——日间；晚安睡眠编排传 C4（60，整体再压一八度） */
-  melodyCeilingMidi?: number;
 }
 
 /** 和弦进行（MIDI 音符，低中区） */
@@ -82,8 +80,6 @@ export function createGenerativePianoPlanner(
   let melodyCursorSeconds = 0;
   let melodyScaleIndex = 4; // 原音阶下标 4 = 67（G4，行走进点）
   let melodyNoteCount = 0;
-  // 高音顶棚：缺省 C5（日间），晚安睡眠编排经参数传入 C4（sleep-mode 规格）
-  const melodyCeilingMidi = parameters.melodyCeilingMidi ?? MELODY_CEILING_MIDI;
 
   return {
     get plannedUntilSeconds() {
@@ -148,13 +144,10 @@ export function createGenerativePianoPlanner(
           );
         }
 
-        // 高音顶棚折下：游标按原音阶行走（轮廓不变），仅发声音高折叠（实测 v2.5）。
-        // 按八度循环折叠直至不超顶棚：日间 C5 单次折叠行为不变；晚安 C4 顶棚折叠至 ≤C4。
+        // 高音顶棚折下：游标按原音阶行走（轮廓不变），仅发声音高折叠（实测 v2.5）
         const walkedMidiNote = MELODY_SCALE_MIDI[melodyScaleIndex];
-        let soundedMidiNote = walkedMidiNote;
-        while (soundedMidiNote > melodyCeilingMidi) {
-          soundedMidiNote -= 12;
-        }
+        const soundedMidiNote =
+          walkedMidiNote > MELODY_CEILING_MIDI ? walkedMidiNote - 12 : walkedMidiNote;
         events.push({
           startAtSeconds: melodyCursorSeconds,
           frequencyHertz: midiNoteToFrequencyHertz(soundedMidiNote),

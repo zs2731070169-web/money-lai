@@ -1,9 +1,8 @@
-import { MorningCardLayout, OverlayLayout } from '../meta/overlay-layout';
+import { OverlayLayout } from '../meta/overlay-layout';
 import { PersistedGameSettings } from '../meta/game-state';
 import { GalleryEntry } from '../meta/gallery';
 import { AchievementDefinition } from '../meta/achievements';
 import { SkinDefinition } from '../meta/skins';
-import { NightlySleepRecord, summarizeSleepLedger } from '../sleep/ledger';
 import { Rect } from '../wallet/flap-hit-test';
 import {
   BILL_PAPER_BASE_COLOR_HEX,
@@ -43,8 +42,6 @@ export interface OverlayPageData {
   skins: Array<{ definition: SkinDefinition; unlocked: boolean; active: boolean }>;
   achievements: Array<{ definition: AchievementDefinition; achieved: boolean }>;
   settings: PersistedGameSettings;
-  /** 睡眠账本逐夜记录（sleep-ledger 页渲染） */
-  sleepLedger: NightlySleepRecord[];
 }
 
 /** 首屏菜单标题（页面态头部只留返回钮，不显示标题——实测反馈微调） */
@@ -183,9 +180,6 @@ export function paintMetaOverlay(
       break;
     case 'achievements':
       paintAchievementsPage(renderingContext, layout, pageData.achievements);
-      break;
-    case 'sleep-ledger':
-      paintSleepLedgerPage(renderingContext, layout, pageData.sleepLedger);
       break;
     case 'settings':
       paintSettingsPage(renderingContext, layout, pageData.settings);
@@ -381,122 +375,6 @@ function paintAchievementsPage(
   });
 }
 
-/** 睡眠账本页（sleep-mode 规格）：汇总行 + 逐夜记录（最新在上），空账本给首次引导文案 */
-function paintSleepLedgerPage(
-  renderingContext: CanvasRenderingContext2D,
-  layout: OverlayLayout,
-  sleepLedger: NightlySleepRecord[],
-): void {
-  const contentTop = layout.panelRect.top + 72;
-  const textLeft = layout.panelRect.left + 20;
-
-  // 汇总行：共 N 夜 · 累计张数 · 累计金额
-  const summary = summarizeSleepLedger(sleepLedger);
-  renderingContext.save();
-  renderingContext.fillStyle = INK_TEXT_COLOR_HEX;
-  renderingContext.font = `600 15px ${UI_FONT_STACK}`;
-  renderingContext.textAlign = 'left';
-  renderingContext.textBaseline = 'middle';
-  renderingContext.fillText(
-    `共 ${summary.totalNights} 夜 · 累计 ${summary.totalDrawnBillCount} 张 · ¥${summary.totalDrawnAmount}`,
-    textLeft,
-    contentTop + 16,
-  );
-  renderingContext.restore();
-
-  if (sleepLedger.length === 0) {
-    renderingContext.save();
-    renderingContext.fillStyle = MUTED_TEXT_COLOR;
-    renderingContext.font = `400 14px ${UI_FONT_STACK}`;
-    renderingContext.textAlign = 'left';
-    renderingContext.textBaseline = 'top';
-    renderingContext.fillText('今晚 22 点后，试着数着钱入睡。', textLeft, contentTop + 52);
-    renderingContext.fillText('开启「晚安模式」，每张抽出的纸币都会记进这本小账本。', textLeft, contentTop + 78);
-    renderingContext.restore();
-    return;
-  }
-
-  // 逐夜行：最新在上；入睡点为空的夜显示「主动退出」
-  const rowHeight = 40;
-  const orderedRecords = [...sleepLedger].reverse();
-  orderedRecords.forEach((record, recordIndex) => {
-    const rowY = contentTop + 48 + recordIndex * rowHeight;
-    renderingContext.save();
-    renderingContext.fillStyle = INK_TEXT_COLOR_HEX;
-    renderingContext.font = `500 14px ${UI_FONT_STACK}`;
-    renderingContext.textAlign = 'left';
-    renderingContext.textBaseline = 'middle';
-    renderingContext.fillText(
-      `${record.localDateString.slice(5).replace('-', '月')}日`,
-      textLeft,
-      rowY,
-    );
-    renderingContext.fillStyle = MUTED_TEXT_COLOR;
-    renderingContext.font = `400 13px ${UI_FONT_STACK}`;
-    renderingContext.textAlign = 'right';
-    renderingContext.fillText(
-      `${record.drawnBillCount} 张 · ¥${record.drawnAmount}${record.sleepPointMs === null ? ' · 未入睡退出' : ''}`,
-      layout.panelRect.left + layout.panelRect.width - 20,
-      rowY,
-    );
-    renderingContext.restore();
-  });
-}
-
-/** 早安卡（sleep-mode 规格「会话封存与早安卡」）：瞬态居中卡片，可关闭、一次性 */
-export function paintMorningCard(
-  renderingContext: CanvasRenderingContext2D,
-  cardLayout: MorningCardLayout,
-  record: NightlySleepRecord,
-): void {
-  const { scrimRect, cardRect, dismissButtonRect } = cardLayout;
-  // 轻衬底：聚焦卡片，点按任意处不关闭（只有按钮关闭，避免误触）
-  renderingContext.save();
-  renderingContext.fillStyle = SCRIM_COLOR;
-  renderingContext.fillRect(scrimRect.left, scrimRect.top, scrimRect.width, scrimRect.height);
-  // 卡片
-  renderingContext.shadowColor = 'rgba(61, 44, 32, 0.25)';
-  renderingContext.shadowBlur = 24;
-  buildRoundedRectPath(renderingContext, cardRect, 18);
-  renderingContext.fillStyle = CARD_FILL_COLOR;
-  renderingContext.fill();
-  renderingContext.restore();
-
-  renderingContext.save();
-  renderingContext.textAlign = 'center';
-  renderingContext.textBaseline = 'middle';
-  renderingContext.fillStyle = MUTED_TEXT_COLOR;
-  renderingContext.font = `500 14px ${UI_FONT_STACK}`;
-  renderingContext.fillText('早安', cardRect.left + cardRect.width / 2, cardRect.top + 40);
-  renderingContext.fillStyle = INK_TEXT_COLOR_HEX;
-  renderingContext.font = `600 18px ${UI_FONT_STACK}`;
-  renderingContext.fillText(
-    record.sleepPointMs !== null
-      ? `昨晚你数了 ${record.drawnBillCount} 张纸币才睡着`
-      : `昨晚你数了 ${record.drawnBillCount} 张纸币`,
-    cardRect.left + cardRect.width / 2,
-    cardRect.top + 84,
-  );
-  renderingContext.font = `400 14px ${UI_FONT_STACK}`;
-  renderingContext.fillText(
-    `¥${record.drawnAmount} 已记入睡眠小账本`,
-    cardRect.left + cardRect.width / 2,
-    cardRect.top + 118,
-  );
-  // 关闭按钮（看到的=可点的）
-  buildRoundedRectPath(renderingContext, dismissButtonRect, dismissButtonRect.height / 2);
-  renderingContext.fillStyle = '#8FA98B';
-  renderingContext.fill();
-  renderingContext.fillStyle = '#FFFFFF';
-  renderingContext.font = `600 15px ${UI_FONT_STACK}`;
-  renderingContext.fillText(
-    '开始新的一天',
-    dismissButtonRect.left + dismissButtonRect.width / 2,
-    dismissButtonRect.top + dismissButtonRect.height / 2,
-  );
-  renderingContext.restore();
-}
-
 /** 设置页：开关行（ON/OFF 胶囊）+ 隐私政策入口 */
 function paintSettingsPage(
   renderingContext: CanvasRenderingContext2D,
@@ -507,7 +385,6 @@ function paintSettingsPage(
     { action: 'toggle-sound', label: '音效', on: settings.soundEnabled },
     { action: 'toggle-bgm', label: '背景音乐', on: settings.bgmEnabled },
     { action: 'toggle-haptics', label: '触觉反馈', on: settings.hapticsEnabled },
-    { action: 'toggle-bedtime-mode', label: '晚安模式', on: settings.bedtimeModeEnabled ?? false },
     { action: 'open-privacy', label: '隐私政策', on: null },
   ];
   for (const button of layout.buttons) {

@@ -48,7 +48,8 @@ export function playSilenceBuffer(audioContext: BaseAudioContext): void {
 export class AudioEngine {
   private readonly options: AudioEngineOptions;
   private audioContext: BaseAudioContext | null = null;
-  /** 总线链（全局低通 → 压缩 → 主增益 → 输出）：BGM 与 SFX 子总线均汇入低通入口 */
+  /** 总线入口（全局低通）：音效与 BGM 均汇入此处 */
+  private busInputNode: AudioNode | null = null;
   private bgmBusGainNode: GainNode | null = null;
   private sharedNoiseBuffer: AudioBuffer | null = null;
   private activeClackVoices: WalletClackVoiceHandles[] = [];
@@ -61,10 +62,6 @@ export class AudioEngine {
   private bgmScheduleOriginSeconds = 0;
   private bgmDryInputNode: AudioNode | null = null;
   private bgmWetSendNode: AudioNode | null = null;
-  /** 操作音效子总线：晚安剖面经此整体软化（sleep-mode 规格），日间恒 1 */
-  private sfxBusGainNode: GainNode | null = null;
-  /** 晚安音频剖面是否激活（睡眠编排 + SFX 软化 + 里程碑静默） */
-  private bedtimeProfileActive = false;
 
   constructor(options: AudioEngineOptions) {
     this.options = options;
@@ -94,7 +91,7 @@ export class AudioEngine {
   private ensureSoundPipeline(): BaseAudioContext | null {
     const audioContext = this.ensureAudioContext();
     if (!audioContext) return null;
-    if (!this.bgmBusGainNode || !this.sfxBusGainNode) {
+    if (!this.busInputNode) {
       const globalLowpassFilter = audioContext.createBiquadFilter();
       globalLowpassFilter.type = 'lowpass';
       globalLowpassFilter.frequency.value = AUDIO_SYNTHESIS_PARAMETERS.masterBus.globalLowpassHertz;
@@ -112,20 +109,13 @@ export class AudioEngine {
       globalLowpassFilter.connect(compressorNode);
       compressorNode.connect(masterGainNode);
       masterGainNode.connect(audioContext.destination);
+      this.busInputNode = globalLowpassFilter;
 
       // BGM 子总线：汇入同一总线链，但增益显著低于操作音效（规格）
       const bgmGainNode = audioContext.createGain();
       bgmGainNode.gain.value = AUDIO_SYNTHESIS_PARAMETERS.bgm.bgmBusGain;
       bgmGainNode.connect(globalLowpassFilter);
       this.bgmBusGainNode = bgmGainNode;
-
-      // 操作音效子总线：晚安剖面整体软化经此生效（sleep-mode 规格）
-      const sfxGainNode = audioContext.createGain();
-      sfxGainNode.gain.value = this.bedtimeProfileActive
-        ? AUDIO_SYNTHESIS_PARAMETERS.bedtimeArrangement.sfxGainScale
-        : 1;
-      sfxGainNode.connect(globalLowpassFilter);
-      this.sfxBusGainNode = sfxGainNode;
     }
     return audioContext;
   }
@@ -183,7 +173,7 @@ export class AudioEngine {
   playWalletClack(direction: 'open' | 'close'): void {
     if (!this.soundEnabled) return;
     const audioContext = this.ensureSoundPipeline();
-    if (!audioContext || !this.sfxBusGainNode) return;
+    if (!audioContext || !this.busInputNode) return;
     const sharedNoiseBuffer = this.getSharedNoiseBuffer(audioContext);
     if (!sharedNoiseBuffer) return;
     const currentSeconds = audioContext.currentTime;
@@ -200,7 +190,7 @@ export class AudioEngine {
 
     const voiceHandles = scheduleLeatherFoldVoice(
       audioContext,
-      this.sfxBusGainNode,
+      this.busInputNode,
       sharedNoiseBuffer,
       AUDIO_SYNTHESIS_PARAMETERS.walletClack,
       currentSeconds,
@@ -222,12 +212,12 @@ export class AudioEngine {
   playPaperGrabRustle(normalizedSpeed: number): void {
     if (!this.soundEnabled) return;
     const audioContext = this.ensureSoundPipeline();
-    if (!audioContext || !this.sfxBusGainNode) return;
+    if (!audioContext || !this.busInputNode) return;
     const sharedNoiseBuffer = this.getSharedNoiseBuffer(audioContext);
     if (!sharedNoiseBuffer) return;
     schedulePaperGrabRustle(
       audioContext,
-      this.sfxBusGainNode,
+      this.busInputNode,
       sharedNoiseBuffer,
       AUDIO_SYNTHESIS_PARAMETERS.paperGrabRustle,
       audioContext.currentTime,
@@ -243,16 +233,14 @@ export class AudioEngine {
     if (!audioContext || !bgmBusGainNode) return;
 
     const currentSeconds = audioContext.currentTime;
-    const { fadeInSeconds } = AUDIO_SYNTHESIS_PARAMETERS.bgm;
-    // 当前编排（日间 / 晚安睡眠编排，sleep-mode 规格）：顶棚、密度与总线增益随之切换
-    const arrangement = this.resolveBgmArrangement();
+    const { fadeInSeconds, bgmBusGain } = AUDIO_SYNTHESIS_PARAMETERS.bgm;
     bgmBusGainNode.gain.cancelScheduledValues(currentSeconds);
     try {
       bgmBusGainNode.gain.setValueAtTime(bgmBusGainNode.gain.value, currentSeconds);
     } catch {
       bgmBusGainNode.gain.setValueAtTime(0, currentSeconds);
     }
-    bgmBusGainNode.gain.linearRampToValueAtTime(arrangement.bgmBusGain, currentSeconds + fadeInSeconds);
+    bgmBusGainNode.gain.linearRampToValueAtTime(bgmBusGain, currentSeconds + fadeInSeconds);
 
     if (!this.bgmDryInputNode || !this.bgmWetSendNode) {
       const reverbChain = createBgmReverbChain(audioContext, bgmBusGainNode);
@@ -261,21 +249,20 @@ export class AudioEngine {
     }
 
     this.bgmPlanner = createGenerativePianoPlanner(AUDIO_SYNTHESIS_PARAMETERS.bgm.seed, {
-      chordDurationSeconds: arrangement.chordDurationSeconds,
-      melodyMinIntervalSeconds: arrangement.melodyMinIntervalSeconds,
-      melodyMaxIntervalSeconds: arrangement.melodyMaxIntervalSeconds,
-      melodyCeilingMidi: arrangement.melodyCeilingMidi,
+      chordDurationSeconds: AUDIO_SYNTHESIS_PARAMETERS.bgm.chordDurationSeconds,
+      melodyMinIntervalSeconds: AUDIO_SYNTHESIS_PARAMETERS.bgm.melodyMinIntervalSeconds,
+      melodyMaxIntervalSeconds: AUDIO_SYNTHESIS_PARAMETERS.bgm.melodyMaxIntervalSeconds,
     });
     this.bgmScheduleOriginSeconds = currentSeconds;
     this.bgmPlaying = true;
     this.updateBgm();
   }
 
-  /** 每帧调用：前瞻调度后续 BGM 事件（计划器游标保证增量幂等）；前瞻窗默认 6s，长渲染测试可放大一次性铺满 */
-  updateBgm(lookAheadSeconds: number = 6): void {
+  /** 每帧调用：前瞻调度后续 BGM 事件（计划器游标保证增量幂等） */
+  updateBgm(): void {
     if (!this.bgmPlaying || !this.bgmPlanner || !this.audioContext) return;
     if (!this.bgmDryInputNode || !this.bgmWetSendNode) return;
-    const horizonSeconds = this.audioContext.currentTime + lookAheadSeconds;
+    const horizonSeconds = this.audioContext.currentTime + 6;
     const noteEvents = this.bgmPlanner.planNextEvents(
       horizonSeconds - this.bgmScheduleOriginSeconds,
     );
@@ -332,116 +319,14 @@ export class AudioEngine {
     return this.bgmPlaying;
   }
 
-  /** 当前 BGM 编排参数（日间 / 晚安睡眠编排，sleep-mode 规格） */
-  private resolveBgmArrangement(): {
-    chordDurationSeconds: number;
-    melodyMinIntervalSeconds: number;
-    melodyMaxIntervalSeconds: number;
-    melodyCeilingMidi?: number;
-    bgmBusGain: number;
-  } {
-    const daytime = AUDIO_SYNTHESIS_PARAMETERS.bgm;
-    const bedtime = AUDIO_SYNTHESIS_PARAMETERS.bedtimeArrangement;
-    if (!this.bedtimeProfileActive) {
-      return {
-        chordDurationSeconds: daytime.chordDurationSeconds,
-        melodyMinIntervalSeconds: daytime.melodyMinIntervalSeconds,
-        melodyMaxIntervalSeconds: daytime.melodyMaxIntervalSeconds,
-        bgmBusGain: daytime.bgmBusGain,
-      };
-    }
-    return {
-      chordDurationSeconds: bedtime.chordDurationSeconds,
-      melodyMinIntervalSeconds: bedtime.melodyMinIntervalSeconds,
-      melodyMaxIntervalSeconds: bedtime.melodyMaxIntervalSeconds,
-      melodyCeilingMidi: bedtime.melodyCeilingMidi,
-      bgmBusGain: bedtime.bgmBusGain,
-    };
-  }
-
-  /** 晚安音频剖面（sleep-mode 规格）：SFX 软化、BGM 切睡眠编排（更慢/更稀疏/C4 顶棚/更低） */
-  setBedtimeAudioProfile(active: boolean): void {
-    if (this.bedtimeProfileActive === active) return;
-    this.bedtimeProfileActive = active;
-    const audioContext = this.audioContext;
-    if (!audioContext || !this.sfxBusGainNode) return;
-    const currentSeconds = audioContext.currentTime;
-    const targetSfxGain = active
-      ? AUDIO_SYNTHESIS_PARAMETERS.bedtimeArrangement.sfxGainScale
-      : 1;
-    this.sfxBusGainNode.gain.cancelScheduledValues(currentSeconds);
-    this.sfxBusGainNode.gain.setValueAtTime(this.sfxBusGainNode.gain.value, currentSeconds);
-    this.sfxBusGainNode.gain.linearRampToValueAtTime(targetSfxGain, currentSeconds + 1);
-    if (this.bgmPlaying) {
-      // 重建计划器以应用睡眠编排（种子不变，确定性保持）
-      this.stopBgm();
-      this.startBgm();
-    }
-  }
-
-  /** 渐进熄灭两总线的淡出目标（sleep-mode 规格）：SFX 归零无声、BGM 压至底板持续播放 */
-  getSleepDimFadeOutTargetGains(): { sfxBusTargetGain: number; bgmBusTargetGain: number } {
-    return {
-      sfxBusTargetGain: 0,
-      bgmBusTargetGain: AUDIO_SYNTHESIS_PARAMETERS.bedtimeArrangement.bgmDimFloorGain,
-    };
-  }
-
-  /** 渐进熄灭：两总线随画面同步淡出（sleep-mode 规格；时长与 60s 渐暗对齐）——SFX 淡至无声，BGM 压至底板持续 */
-  beginSleepDimFadeOut(): void {
-    const audioContext = this.audioContext;
-    if (!audioContext) return;
-    const fadeSeconds = AUDIO_SYNTHESIS_PARAMETERS.bedtimeArrangement.dimFadeOutSeconds;
-    const { sfxBusTargetGain, bgmBusTargetGain } = this.getSleepDimFadeOutTargetGains();
-    const currentSeconds = audioContext.currentTime;
-    const busTargetGains = [
-      { gainNode: this.sfxBusGainNode, targetGain: sfxBusTargetGain },
-      { gainNode: this.bgmBusGainNode, targetGain: bgmBusTargetGain },
-    ];
-    for (const { gainNode, targetGain } of busTargetGains) {
-      if (!gainNode) continue;
-      gainNode.gain.cancelScheduledValues(currentSeconds);
-      try {
-        gainNode.gain.setValueAtTime(gainNode.gain.value, currentSeconds);
-      } catch {
-        // 忽略读取失败（部分环境 gain.value 不可读）
-      }
-      gainNode.gain.linearRampToValueAtTime(targetGain, currentSeconds + fadeSeconds);
-    }
-  }
-
-  /** 熄灭后触摸恢复：总线温和淡回当前剖面音量（数秒级，不惊扰） */
-  recoverFromSleepDimFade(): void {
-    const audioContext = this.audioContext;
-    if (!audioContext) return;
-    const currentSeconds = audioContext.currentTime;
-    const targetSfxGain = this.bedtimeProfileActive
-      ? AUDIO_SYNTHESIS_PARAMETERS.bedtimeArrangement.sfxGainScale
-      : 1;
-    if (this.sfxBusGainNode) {
-      this.sfxBusGainNode.gain.cancelScheduledValues(currentSeconds);
-      this.sfxBusGainNode.gain.setValueAtTime(this.sfxBusGainNode.gain.value, currentSeconds);
-      this.sfxBusGainNode.gain.linearRampToValueAtTime(targetSfxGain, currentSeconds + 3);
-    }
-    if (this.bgmBusGainNode && this.bgmPlaying) {
-      this.bgmBusGainNode.gain.cancelScheduledValues(currentSeconds);
-      this.bgmBusGainNode.gain.setValueAtTime(this.bgmBusGainNode.gain.value, currentSeconds);
-      this.bgmBusGainNode.gain.linearRampToValueAtTime(
-        this.resolveBgmArrangement().bgmBusGain,
-        currentSeconds + 3,
-      );
-    }
-  }
-
-  /** 里程碑木质 tok 音（每 100 张，cash-drawing 规格；晚安剖面全静默——判定照常、呈现静默） */
+  /** 里程碑木质 tok 音（每 100 张，cash-drawing 规格） */
   playMilestoneTok(): void {
     if (!this.soundEnabled) return;
-    if (this.bedtimeProfileActive) return;
     const audioContext = this.ensureSoundPipeline();
-    if (!audioContext || !this.sfxBusGainNode) return;
+    if (!audioContext || !this.busInputNode) return;
     scheduleMilestoneTokVoice(
       audioContext,
-      this.sfxBusGainNode,
+      this.busInputNode,
       this.getSharedNoiseBuffer(audioContext),
       AUDIO_SYNTHESIS_PARAMETERS.milestoneTok,
       audioContext.currentTime,

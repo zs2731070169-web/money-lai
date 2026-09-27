@@ -20,26 +20,6 @@ export const WALLET_FLAP_FOLD_OPEN_DURATION_MS = 1050;
 /** 关闭折叠时长（ms）：重力下落 → 缓冲垫着陆 */
 export const WALLET_FLAP_FOLD_CLOSE_DURATION_MS = 950;
 
-/** 折叠运动剖面：时长参数按会话注入（日间/晚安两套，sleep-mode 规格「夜间交互剖面」） */
-export interface WalletFlapMotionProfile {
-  /** 开启折叠时长（ms） */
-  foldOpenDurationMs: number;
-  /** 关闭折叠时长（ms） */
-  foldCloseDurationMs: number;
-}
-
-/** 日间剖面：现值保持（wallet-interaction 实测反馈 v2.3） */
-export const DAYTIME_WALLET_FLAP_MOTION_PROFILE: WalletFlapMotionProfile = {
-  foldOpenDurationMs: WALLET_FLAP_FOLD_OPEN_DURATION_MS,
-  foldCloseDurationMs: WALLET_FLAP_FOLD_CLOSE_DURATION_MS,
-};
-
-/** 晚安剖面：约 1.6 倍时长（规格区间 1.4-1.8 的中值）——更慢、更重、过冲收敛 */
-export const BEDTIME_WALLET_FLAP_MOTION_PROFILE: WalletFlapMotionProfile = {
-  foldOpenDurationMs: 1680,
-  foldCloseDurationMs: 1520,
-};
-
 export type WalletFlapPhase = 'closed' | 'pressing' | 'folding' | 'open';
 
 export interface WalletFlapState {
@@ -134,7 +114,6 @@ function beginFold(state: WalletFlapState, target: 0 | 1): WalletFlapStateUpdate
 export function advanceWalletFlap(
   state: WalletFlapState,
   event: WalletFlapEvent,
-  motionProfile: WalletFlapMotionProfile = DAYTIME_WALLET_FLAP_MOTION_PROFILE,
 ): WalletFlapStateUpdate {
   switch (event.type) {
     case 'press': {
@@ -212,8 +191,8 @@ export function advanceWalletFlap(
       }
       const foldDurationMs =
         state.foldTarget === 1
-          ? motionProfile.foldOpenDurationMs
-          : motionProfile.foldCloseDurationMs;
+          ? WALLET_FLAP_FOLD_OPEN_DURATION_MS
+          : WALLET_FLAP_FOLD_CLOSE_DURATION_MS;
       const foldElapsedMs = state.foldElapsedMs + event.deltaMs;
       const rawProgress = Math.min(1, foldElapsedMs / foldDurationMs);
       // 物理剖面（按方向选择）：开启=抛起/荡过/过冲回落；关闭=重力/垫着陆

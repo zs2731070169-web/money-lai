@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { DAYTIME_BOOT_PERSISTED_JSON } from '../support/daytime-boot-state';
 import { Game } from '../../src/core/game';
 import type {
   NormalizedTouchPoint,
@@ -89,7 +88,7 @@ function createLaunchHarness(audioContext: AudioContext | null) {
     createAudioContext: () => audioContext,
     onAudioInterruption() {},
     triggerHapticImpact() {},
-    readPersistentValue: () => DAYTIME_BOOT_PERSISTED_JSON,
+    readPersistentValue: () => null,
     writePersistentValue() {},
     getSafeAreaInsets: () => SAFE_AREA,
     getLogicalViewportSize: () => VIEWPORT,

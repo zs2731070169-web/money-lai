@@ -1,0 +1,30 @@
+schema: spec-driven
+
+context: |
+  money-lai 是离线运行的钱包抽钞小游戏，目标平台为 Web/Capacitor iOS，后续可增加其他平台适配器。
+  技术栈：TypeScript、Canvas 2D、Vite、Vitest、Capacitor。
+  openspec/specs/ 是产品行为的主规格；src/core/ 是平台无关内核，src/adapters/web.ts 实现 PlatformAdapter。
+  核心状态机和几何计算优先保持纯函数，平台副作用由 src/core/game.ts 编排。
+  改动前先检查工作区已有编辑；验证入口是 npm run verify，规格校验入口是 npm run verify:specs。
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing

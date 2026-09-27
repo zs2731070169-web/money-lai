@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- viewport-fit=cover：全屏延展到刘海/Home 指示条区域，安全区由适配层读取下列 CSS 变量 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#F7EFE4" />
+    <title>money-lai</title>
+    <style>
+      :root {
+        --safe-area-inset-top: env(safe-area-inset-top, 0px);
+        --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+        --safe-area-inset-left: env(safe-area-inset-left, 0px);
+        --safe-area-inset-right: env(safe-area-inset-right, 0px);
+      }
+      html,
+      body {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+        touch-action: none;
+        overscroll-behavior: none;
+        margin: 0;
+        /* 黄昏色板起点（设计令牌 D4：#F7EFE4） */
+        background: #f7efe4;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

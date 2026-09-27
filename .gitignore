@@ -1,0 +1,10 @@
+node_modules/
+dist/
+android/
+ios/
+tmp/
+*.log
+.DS_Store
+.idea/
+.jbeval/
+packages/

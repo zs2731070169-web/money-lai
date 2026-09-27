@@ -1,0 +1,36 @@
+{
+  "name": "money-lai",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "money-lai — 打开钱包，无限抽出纸币的治愈系小游戏（iOS / 未来小游戏 / 安卓）",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "smoke": "vitest run tests/perf",
+    "audit:imports": "node scripts/import-audit.mjs",
+    "verify": "npm run audit:imports && npm test && npm run build",
+    "verify:specs": "openspec validate --specs --strict --no-interactive",
+    "launch": "bash scripts/launch-simulator.sh",
+    "launch:fast": "bash scripts/launch-simulator.sh --fast",
+    "launch:android": "bash scripts/launch-android.sh",
+    "launch:android:fast": "bash scripts/launch-android.sh --fast",
+    "package:android": "bash scripts/package-android.sh",
+    "package:ios": "bash scripts/package-ios.sh"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
+    "@types/node": "^22.10.0",
+    "node-web-audio-api": "^2.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.5.2"
+  }
+}

@@ -18,6 +18,18 @@ export const CASH_DRAW_GESTURE_SLOP_DISTANCE = 2;
 /** 抓取热区宽容余量（逻辑像素）：未精确按住纸币也可抓取（规格 R5） */
 export const CASH_GRAB_MARGIN_PIXELS = 18;
 
+/** 抽钞运动剖面：跟手增益按会话注入（日间/晚安两套，sleep-mode 规格「夜间交互剖面」） */
+export interface CashDrawMotionProfile {
+  /** 拖拽位移→抽出比例的增益：1=完全跟手；<1=更粘（同样手指行程抽出更慢） */
+  dragGain: number;
+}
+
+/** 日间剖面：完全跟手 */
+export const DAYTIME_CASH_DRAW_MOTION_PROFILE: CashDrawMotionProfile = { dragGain: 1 };
+
+/** 晚安剖面：0.75 增益——柔性延迟略增的「更粘」跟手 */
+export const BEDTIME_CASH_DRAW_MOTION_PROFILE: CashDrawMotionProfile = { dragGain: 0.75 };
+
 export type CashDrawPhase = 'idle' | 'dragging' | 'completing' | 'recycling';
 
 export interface CashDrawState {
@@ -59,6 +71,7 @@ export function createInitialCashDrawState(): CashDrawState {
 export function advanceCashDrawSession(
   state: CashDrawState,
   event: CashDrawEvent,
+  motionProfile: CashDrawMotionProfile = DAYTIME_CASH_DRAW_MOTION_PROFILE,
 ): CashDrawStateUpdate {
   switch (event.type) {
     case 'grab': {
@@ -81,7 +94,7 @@ export function advanceCashDrawSession(
       if (state.phase !== 'dragging') {
         return { state, effects: [] };
       }
-      const ratioDelta = event.dragDeltaY / CASH_BILL_LOGICAL_HEIGHT;
+      const ratioDelta = (event.dragDeltaY / CASH_BILL_LOGICAL_HEIGHT) * motionProfile.dragGain;
       const nextRatio = clampToUnitInterval(state.pulledOutRatio + ratioDelta);
       return {
         state: {

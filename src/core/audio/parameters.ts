@@ -77,6 +77,22 @@ export interface AudioSynthesisParameters {
     fadeInSeconds: number;
     fadeOutSeconds: number;
   };
+  bedtimeArrangement: {
+    /** 晚安 BGM 和弦时长（秒）：较日间更慢 */
+    chordDurationSeconds: number;
+    /** 晚安旋律最小间隔（秒）：更稀疏 */
+    melodyMinIntervalSeconds: number;
+    /** 晚安旋律最大间隔（秒）：长呼吸更长 */
+    melodyMaxIntervalSeconds: number;
+    /** 晚安旋律顶棚（MIDI 60 = C4）：发声音高整体再压一个八度（sleep-mode 规格） */
+    melodyCeilingMidi: number;
+    /** 晚安 BGM 总线增益：较日间再压约 -4.5dB */
+    bgmBusGain: number;
+    /** 晚安操作音效整体增益（软化音量） */
+    sfxGainScale: number;
+    /** 熄灭淡出时长（秒）：与渐进熄灭 60s 渐暗同步 */
+    dimFadeOutSeconds: number;
+  };
 }
 
 export const AUDIO_SYNTHESIS_PARAMETERS: AudioSynthesisParameters = {
@@ -149,5 +165,14 @@ export const AUDIO_SYNTHESIS_PARAMETERS: AudioSynthesisParameters = {
     bgmBusGain: 0.16,
     fadeInSeconds: 2,
     fadeOutSeconds: 1.5,
+  },
+  bedtimeArrangement: {
+    chordDurationSeconds: 14,
+    melodyMinIntervalSeconds: 2,
+    melodyMaxIntervalSeconds: 7,
+    melodyCeilingMidi: 60,
+    bgmBusGain: 0.095,
+    sfxGainScale: 0.6,
+    dimFadeOutSeconds: 60,
   },
 };

@@ -17,9 +17,9 @@
 
 ## 3. 睡眠音频
 
-- [ ] 3.1 `AUDIO_SYNTHESIS_PARAMETERS` 增加 sleep 编排块（BGM 速度/密度/顶棚 C4/音量、SFX 夜间增益、连抽上行禁用、熄灭淡出曲线）；验证：`tests/audio/audio-regression.test.ts` 内联镜像同步更新且快照通过
-- [ ] 3.2 engine 按会话切换睡眠编排 + 熄灭同步淡出/恢复淡入；验证：OfflineAudioContext 离线断言（夜间旋律发声音高 ≤C4、淡出无骤停、峰值 ≤0.9、无 NaN）
-- [ ] 3.3 里程碑音与连抽音高上行在夜间静默（消费侧门控）；验证：离线渲染断言夜间无 milestone 声部
+- [x] 3.1 `AUDIO_SYNTHESIS_PARAMETERS` 增加 sleep 编排块（BGM 速度/密度/顶棚 C4/音量、SFX 夜间增益、连抽上行禁用、熄灭淡出曲线）；验证：`tests/audio/audio-regression.test.ts` 内联镜像同步更新且快照通过
+- [x] 3.2 engine 按会话切换睡眠编排 + 熄灭同步淡出/恢复淡入；验证：OfflineAudioContext 离线断言（夜间旋律发声音高 ≤C4、淡出无骤停、峰值 ≤0.9、无 NaN）
+- [x] 3.3 里程碑音与连抽音高上行在夜间静默（消费侧门控）；验证：离线渲染断言夜间无 milestone 声部
 
 ## 4. 元进程与持久化
 

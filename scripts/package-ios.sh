@@ -32,6 +32,7 @@ echo "▸ 2/6 构建 Web 产物（tsc + vite）"
 npm run build
 
 echo "▸ 3/6 同步 Capacitor"
+bash scripts/sync-native-branding.sh
 npx cap sync ios
 
 echo "▸ 4/6 xcodebuild archive（通用 iOS 设备）"
@@ -67,7 +68,7 @@ xcodebuild -exportArchive \
 
 echo "▸ 6/6 归档产物"
 STAMP=$(date +%Y%m%d-%H%M)
-FINAL_IPA="$OUTPUT_DIR/money-lai-${STAMP}.ipa"
+FINAL_IPA="$OUTPUT_DIR/letter-burning-${STAMP}.ipa"
 mv "$OUTPUT_DIR/App.ipa" "$FINAL_IPA" 2>/dev/null || FINAL_IPA=$(ls -t "$OUTPUT_DIR"/*.ipa | head -1)
 
 echo "✔ iOS 打包完成：$FINAL_IPA"

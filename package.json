@@ -1,16 +1,17 @@
 {
-  "name": "money-lai",
+  "name": "letter-burning",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "money-lai — 打开钱包，无限抽出纸币的治愈系小游戏（iOS / 未来小游戏 / 安卓）",
+  "description": "燃信 — 写下一句，让明信片在火光中安静离开",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "smoke": "vitest run tests/perf",
     "audit:imports": "node scripts/import-audit.mjs",
-    "verify": "npm run audit:imports && npm test && npm run build",
+    "audit:release": "node scripts/release-audit.mjs",
+    "verify": "npm run audit:imports && npm test && npm run build && npm run audit:release",
     "verify:specs": "openspec validate --specs --strict --no-interactive",
     "launch": "bash scripts/launch-simulator.sh",
     "launch:fast": "bash scripts/launch-simulator.sh --fast",
@@ -30,7 +31,9 @@
   "dependencies": {
     "@capacitor/android": "^8.5.2",
     "@capacitor/core": "^8.5.2",
-    "@capacitor/haptics": "^8.0.2",
-    "@capacitor/ios": "^8.5.2"
+    "@capacitor/filesystem": "^8.0.0",
+    "@capacitor/ios": "^8.5.2",
+    "@capacitor/preferences": "^8.0.0",
+    "@capacitor/share": "^8.0.0"
   }
 }

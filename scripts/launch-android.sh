@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-APP_ID="com.hariku.moneylai"
+APP_ID="com.hariku.letterburning"
 APP_ACTIVITY="${APP_ID}/.MainActivity"
 SERIAL="${ANDROID_SERIAL:-}"
 
@@ -46,6 +46,7 @@ if [[ "${1:-}" != "--fast" ]]; then
   npm run build
 
   echo "▸ 4/5 同步 Capacitor 并编译安装 APK"
+  bash scripts/sync-native-branding.sh
   npx cap sync android
   (cd android && ./gradlew installDebug)
 else

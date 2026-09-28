@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">燃信</string>
+    <string name="title_activity_main">燃信</string>
+    <string name="package_name">com.hariku.letterburning</string>
+    <string name="custom_url_scheme">com.hariku.letterburning</string>
+</resources>

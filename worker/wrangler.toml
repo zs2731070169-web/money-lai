@@ -1,0 +1,16 @@
+name = "letter-burning-count"
+main = "src/index.ts"
+compatibility_date = "2026-09-28"
+send_metrics = false
+
+[observability]
+enabled = false
+
+[[durable_objects.bindings]]
+name = "BURN_COUNTER"
+class_name = "BurnCounter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BurnCounter"]
+

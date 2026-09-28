@@ -1,189 +1,45 @@
 import { describe, expect, it } from 'vitest';
 import { OfflineAudioContext } from 'node-web-audio-api';
 import { AudioEngine } from '../../src/core/audio/engine';
+import { scheduleBurningNoise, scheduleExtinguish, scheduleIgnition, startPostcardRustle, stopNoiseVoice } from '../../src/core/audio/fire-sound';
 import { AUDIO_SYNTHESIS_PARAMETERS } from '../../src/core/audio/parameters';
-
-/**
- * 音频回归测试（任务 5.1/5.2/5.3 验证入口，对应 procedural-audio 规格）：
- * OfflineAudioContext 离线渲染 + 峰值 ≤0.9 / 无 NaN / 时长断言 + 参数快照 + 并发抢占。
- */
 
 const SAMPLE_RATE = 44100;
 
-/** 离线渲染：以注入的引擎行为渲染指定秒数并分析 */
-async function renderWithAudioEngine(
-  renderSeconds: number,
-  act: (engine: AudioEngine) => void,
-): Promise<{ peakAmplitude: number; nanSampleCount: number; audibleDurationMs: number }> {
-  const offlineContext = new OfflineAudioContext(
-    2,
-    Math.round(SAMPLE_RATE * renderSeconds),
-    SAMPLE_RATE,
-  );
-  const engine = new AudioEngine({
-    createAudioContext: () => offlineContext as unknown as AudioContext,
-  });
-  await engine.unlock();
-  act(engine);
-  const renderedBuffer = await offlineContext.startRendering();
-
-  let peakAmplitude = 0;
-  let nanSampleCount = 0;
-  let lastAudibleSampleIndex = 0;
-  const firstChannel = renderedBuffer.getChannelData(0);
-  for (let sampleIndex = 0; sampleIndex < firstChannel.length; sampleIndex += 1) {
-    const sample = firstChannel[sampleIndex];
-    if (!Number.isFinite(sample)) {
-      nanSampleCount += 1;
-      continue;
-    }
-    if (Math.abs(sample) > peakAmplitude) peakAmplitude = Math.abs(sample);
-    if (Math.abs(sample) > 0.001) lastAudibleSampleIndex = sampleIndex;
-  }
-  return {
-    peakAmplitude,
-    nanSampleCount,
-    audibleDurationMs: (lastAudibleSampleIndex / SAMPLE_RATE) * 1000,
-  };
+function noiseBuffer(context: OfflineAudioContext): AudioBuffer {
+  const buffer = context.createBuffer(1, SAMPLE_RATE * 4, SAMPLE_RATE); const data = buffer.getChannelData(0); let seed = 991;
+  for (let index = 0; index < data.length; index += 1) { seed = Math.imul(seed ^ (seed >>> 15), 2246822519); data[index] = ((seed >>> 0) / 0xffff_ffff) * 2 - 1; }
+  return buffer;
 }
 
-describe('音频回归：开合皮革音（任务 10.3，无鼓类签名）', () => {
-  it('开启音：峰值 ≤0.9、无 NaN、非静音、时长 30~200ms（短促干燥）', async () => {
-    const analysis = await renderWithAudioEngine(0.6, (engine) => {
-      engine.playWalletClack('open');
-    });
-    expect(analysis.nanSampleCount).toBe(0);
-    expect(analysis.peakAmplitude).toBeGreaterThan(0.02); // 非静音（配方整体更安静）
-    expect(analysis.peakAmplitude).toBeLessThanOrEqual(0.9); // 规格：防爆音
-    expect(analysis.audibleDurationMs).toBeGreaterThan(30);
-    expect(analysis.audibleDurationMs).toBeLessThan(200);
+describe('燃信程序化音频回归', () => {
+  it('拖纸声 300ms 收尾，再播放 80ms 点燃、2.7s 连续燃烧和 400ms 熄灭', async () => {
+    const context = new OfflineAudioContext(2, Math.round(SAMPLE_RATE * 3.8), SAMPLE_RATE); const noise = noiseBuffer(context);
+    const rustle = startPostcardRustle(context, context.destination, noise, 0, AUDIO_SYNTHESIS_PARAMETERS.postcardRustle);
+    stopNoiseVoice(rustle, 0, AUDIO_SYNTHESIS_PARAMETERS.postcardRustle.fadeOutSeconds);
+    scheduleIgnition(context, context.destination, noise, 0.3, AUDIO_SYNTHESIS_PARAMETERS.ignition);
+    scheduleBurningNoise(context, context.destination, noise, 0.3, AUDIO_SYNTHESIS_PARAMETERS.burn);
+    scheduleExtinguish(context, context.destination, noise, 3.0, AUDIO_SYNTHESIS_PARAMETERS.extinguish);
+    const rendered = await context.startRendering(); const data = rendered.getChannelData(0);
+    let peak = 0; let nan = 0; let maximumDelta = 0;
+    for (let index = 1; index < data.length; index += 1) { if (!Number.isFinite(data[index])) nan += 1; peak = Math.max(peak, Math.abs(data[index])); maximumDelta = Math.max(maximumDelta, Math.abs(data[index] - data[index - 1])); }
+    expect(AUDIO_SYNTHESIS_PARAMETERS.postcardRustle.fadeOutSeconds).toBe(0.3);
+    expect(AUDIO_SYNTHESIS_PARAMETERS.ignition).toMatchObject({ durationSeconds: 0.08, peakGain: 0.5 });
+    expect(AUDIO_SYNTHESIS_PARAMETERS.burn).toMatchObject({ highpassHertz: 200, lowpassHertz: 800, startGain: 0.22, endGain: 0.10, durationSeconds: 2.7 });
+    expect(AUDIO_SYNTHESIS_PARAMETERS.burn.breathingPeriodSeconds).toBeGreaterThanOrEqual(0.8);
+    expect(AUDIO_SYNTHESIS_PARAMETERS.burn.breathingPeriodSeconds).toBeLessThanOrEqual(1.2);
+    expect(AUDIO_SYNTHESIS_PARAMETERS.extinguish).toMatchObject({ durationSeconds: 0.4, startGain: 0.1 });
+    expect(nan).toBe(0); expect(peak).toBeGreaterThan(0.01); expect(peak).toBeLessThanOrEqual(0.9); expect(maximumDelta).toBeLessThan(0.5);
   });
 
-  it('关闭音为更轻的变体（峰值低于开启音）', async () => {
-    const openAnalysis = await renderWithAudioEngine(0.4, (engine) => {
-      engine.playWalletClack('open');
-    });
-    const closeAnalysis = await renderWithAudioEngine(0.4, (engine) => {
-      engine.playWalletClack('close');
-    });
-    expect(closeAnalysis.peakAmplitude).toBeGreaterThan(0.01);
-    expect(closeAnalysis.peakAmplitude).toBeLessThan(openAnalysis.peakAmplitude);
-  });
-});
-
-describe('音频回归：抓取瞬态沙响（任务 v2.6，一抓一声）', () => {
-  it('单次沙沙（连续起伏流）：非静音、峰值 ≤0.9、无 NaN、总长 ~220ms <350ms', async () => {
-    const analysis = await renderWithAudioEngine(0.8, (engine) => {
-      engine.playPaperGrabRustle(0.7);
-    });
-    expect(analysis.nanSampleCount).toBe(0);
-    expect(analysis.peakAmplitude).toBeGreaterThan(0.02);
-    expect(analysis.peakAmplitude).toBeLessThanOrEqual(0.9);
-    expect(analysis.audibleDurationMs).toBeGreaterThan(60);
-    expect(analysis.audibleDurationMs).toBeLessThan(350);
-  });
-
-  it('速度微调：慢抓比快抓更轻', async () => {
-    const slowAnalysis = await renderWithAudioEngine(0.4, (engine) => {
-      engine.playPaperGrabRustle(0.1);
-    });
-    const fastAnalysis = await renderWithAudioEngine(0.4, (engine) => {
-      engine.playPaperGrabRustle(1);
-    });
-    expect(slowAnalysis.peakAmplitude).toBeLessThan(fastAnalysis.peakAmplitude);
-  });
-});
-
-describe('音频回归：并发抢占（任务 5.3，规格：极速连抽不破）', () => {
-  it('同刻 5 连发开合音 → 活跃 voice 不超过上限 3 且峰值 ≤0.9', async () => {
-    const analysis = await renderWithAudioEngine(0.6, (engine) => {
-      for (let clackIndex = 0; clackIndex < 5; clackIndex += 1) {
-        engine.playWalletClack('open');
-        expect(engine.getActiveClackVoiceCount()).toBeLessThanOrEqual(3);
-      }
-      expect(engine.getActiveClackVoiceCount()).toBe(3);
-    });
-    expect(analysis.nanSampleCount).toBe(0);
-    expect(analysis.peakAmplitude).toBeLessThanOrEqual(0.9);
-  });
-});
-
-describe('合成参数快照（调音必改快照，防漂移）', () => {
-  it('参数常量与已归档快照一致', () => {
-    expect(AUDIO_SYNTHESIS_PARAMETERS).toEqual({
-      masterBus: {
-        compressorThresholdDecibels: -14,
-        compressorKneeDecibels: 8,
-        compressorRatio: 6,
-        compressorAttackSeconds: 0.002,
-        compressorReleaseSeconds: 0.2,
-        masterGain: 0.6,
-        globalLowpassHertz: 7000,
-      },
-      sfxBus: {
-        busGain: 0.6,
-      },
-      walletClack: {
-        attackRampMilliseconds: 5,
-        leatherFlexCenterHertz: 1300,
-        leatherFlexQFactor: 0.7,
-        leatherFlexPeakGain: 0.22,
-        leatherFlexDecayMilliseconds: 60,
-        softPadCutoffHertz: 420,
-        softPadPeakGain: 0.12,
-        softPadDecayMilliseconds: 70,
-        paperBrushCutoffHertz: 4200,
-        paperBrushPeakGain: 0.05,
-        paperBrushDecayMilliseconds: 35,
-        closeVariantFrequencyScale: 0.8,
-        closeVariantGainScale: 0.85,
-      },
-      paperGrabRustle: {
-        highpassHertz: 600,
-        lowpassHertz: 3400,
-        swellAttackMilliseconds: 70,
-        totalDurationMilliseconds: 220,
-        tremoloFrequencyHertz: 10,
-        tremoloDepthRatio: 0.25,
-        peakGainMin: 0.02,
-        peakGainMax: 0.07,
-      },
-      concurrency: {
-        clackVoiceLimit: 3,
-        preemptionReleaseMilliseconds: 20,
-      },
-      milestoneTok: {
-        startFrequencyHertz: 640,
-        endFrequencyHertz: 170,
-        frequencyRampMilliseconds: 90,
-        totalDurationMilliseconds: 140,
-        peakGain: 0.3,
-        attackRampMilliseconds: 2,
-        transientCenterHertz: 2400,
-        transientPeakGain: 0.12,
-        transientDecayMilliseconds: 30,
-      },
-      paperReleasePuff: {
-        highpassHertz: 1100,
-        lowpassHertz: 5000,
-        swellAttackMilliseconds: 40,
-        totalDurationMilliseconds: 180,
-        tremoloFrequencyHertz: 9,
-        tremoloDepthRatio: 0.2,
-        streakPitchStep: 0.06,
-        streakPitchCap: 1.6,
-        peakGain: 0.15,
-      },
-      bgm: {
-        seed: 20260926,
-        chordDurationSeconds: 14,
-        melodyMinIntervalSeconds: 2,
-        melodyMaxIntervalSeconds: 7,
-        melodyCeilingMidi: 60,
-        bgmBusGain: 0.095,
-        fadeInSeconds: 2,
-        fadeOutSeconds: 1.5,
-      },
-    });
+  it('钢琴与燃烧声叠加时无 NaN 且峰值不超过 0.9', async () => {
+    const context = new OfflineAudioContext(2, Math.round(SAMPLE_RATE * 3.2), SAMPLE_RATE);
+    const engine = new AudioEngine({ createAudioContext: () => context as unknown as AudioContext });
+    await engine.unlock(); engine.startBgm(); engine.ignite();
+    const rendered = await context.startRendering(); let peak = 0; let nan = 0;
+    for (let channel = 0; channel < rendered.numberOfChannels; channel += 1) {
+      for (const sample of rendered.getChannelData(channel)) { if (!Number.isFinite(sample)) nan += 1; else peak = Math.max(peak, Math.abs(sample)); }
+    }
+    expect(nan).toBe(0); expect(peak).toBeGreaterThan(0.01); expect(peak).toBeLessThanOrEqual(0.9);
   });
 });

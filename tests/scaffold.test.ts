@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
  */
 describe('工程脚手架', () => {
   it('vitest 能执行 TypeScript 测试', () => {
-    const roundedWallets = [1, 2, 3].reduce((sum, count) => sum + count, 0);
-    expect(roundedWallets).toBe(6);
+    const roundedCards = [1, 2, 3].reduce((sum, count) => sum + count, 0);
+    expect(roundedCards).toBe(6);
   });
 });

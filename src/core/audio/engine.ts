@@ -1,341 +1,91 @@
 import { createSeededRandomNumberGenerator } from '../utility/deterministic-random';
-import { GenerativePianoPlanner, createGenerativePianoPlanner } from './bgm-planner';
+import { createGenerativePianoPlanner, midiNoteToFrequencyHertz, type GenerativePianoPlanner } from './bgm-planner';
 import { createBgmReverbChain, scheduleGenerativePianoNote } from './bgm-player';
+import { scheduleBurningNoise, scheduleExtinguish, scheduleIgnition, startPostcardRustle, stopNoiseVoice, type ActiveNoiseVoice } from './fire-sound';
 import { AUDIO_SYNTHESIS_PARAMETERS } from './parameters';
-import { schedulePaperGrabRustle } from './paper-slide';
-import { WalletClackVoiceHandles, scheduleLeatherFoldVoice } from './wallet-clack';
-import {
-  scheduleMilestoneTokVoice,
-} from './milestone-tok';
 
-/**
- * AudioEngine（procedural-audio 规格的编排门面）：
- * 惰性创建上下文（经适配器注入，测试注入离线上下文）、总线防爆、
- * 开合音并发抢占、摩擦音持久 voice、手势解锁与中断恢复。
- */
+export interface AudioEngineOptions { createAudioContext: () => BaseAudioContext | null }
 
-export interface AudioEngineOptions {
-  /** 音频上下文工厂：由 PlatformAdapter 提供（Web/微信），测试注入离线上下文 */
-  createAudioContext: () => BaseAudioContext | null;
+export async function resumeAudioContextIfNeeded(audioContext: BaseAudioContext): Promise<boolean> {
+  const offline = audioContext as Partial<OfflineAudioContext>; if (typeof offline.startRendering === 'function') return true;
+  const resumable = audioContext as Partial<AudioContext>; if (typeof resumable.resume !== 'function' || audioContext.state !== 'suspended') return true;
+  try { await resumable.resume(); return audioContext.state !== 'suspended'; } catch { return false; }
 }
 
-/** 恢复挂起的音频上下文；离线上下文（有 startRendering）与无 resume 能力者视为可用 */
-export async function resumeAudioContextIfNeeded(
-  audioContext: BaseAudioContext,
-): Promise<boolean> {
-  const offlineCapableContext = audioContext as Partial<OfflineAudioContext>;
-  if (typeof offlineCapableContext.startRendering === 'function') return true;
-  const resumableContext = audioContext as Partial<AudioContext>;
-  if (typeof resumableContext.resume !== 'function') return true;
-  if (audioContext.state !== 'suspended') return true;
-  try {
-    await resumableContext.resume();
-    return audioContext.state !== 'suspended';
-  } catch {
-    return false; // 静默降级：解锁失败不影响游戏进行
-  }
-}
-
-/** 播放 1 样本静音 buffer（旧版 iOS 在 resume 之外还要求播放一次才真正解锁） */
 export function playSilenceBuffer(audioContext: BaseAudioContext): void {
-  const silenceBuffer = audioContext.createBuffer(1, 1, audioContext.sampleRate);
-  const silenceSource = audioContext.createBufferSource();
-  silenceSource.buffer = silenceBuffer;
-  silenceSource.connect(audioContext.destination);
-  silenceSource.start(audioContext.currentTime);
+  const buffer = audioContext.createBuffer(1, 1, audioContext.sampleRate); const source = audioContext.createBufferSource(); source.buffer = buffer; source.connect(audioContext.destination); source.start(audioContext.currentTime);
 }
 
 export class AudioEngine {
-  private readonly options: AudioEngineOptions;
-  private audioContext: BaseAudioContext | null = null;
-  /** 总线入口（全局低通）：音效与 BGM 均汇入此处 */
-  private busInputNode: AudioNode | null = null;
-  private bgmBusGainNode: GainNode | null = null;
-  private sharedNoiseBuffer: AudioBuffer | null = null;
-  private activeClackVoices: WalletClackVoiceHandles[] = [];
+  private context: BaseAudioContext | null = null;
+  private sfxBus: GainNode | null = null;
+  private bgmBus: GainNode | null = null;
+  private noise: AudioBuffer | null = null;
+  private rustle: ActiveNoiseVoice | null = null;
   private unlocked = false;
   private reunlockRequired = false;
-  private soundEnabled = true;
-  private bgmEnabled = true;
   private bgmPlaying = false;
-  private bgmPlanner: GenerativePianoPlanner | null = null;
-  private bgmScheduleOriginSeconds = 0;
-  private bgmDryInputNode: AudioNode | null = null;
-  private bgmWetSendNode: AudioNode | null = null;
+  private planner: GenerativePianoPlanner | null = null;
+  private bgmOrigin = 0;
+  private bgmDry: AudioNode | null = null;
+  private bgmWet: AudioNode | null = null;
+  constructor(private readonly options: AudioEngineOptions) {}
 
-  constructor(options: AudioEngineOptions) {
-    this.options = options;
-  }
-
-  isUnlocked(): boolean {
-    return this.unlocked;
-  }
-
-  /** 中断后是否需要下一次手势重新解锁（规格：中断恢复） */
-  isReunlockRequired(): boolean {
-    return this.reunlockRequired;
-  }
-
-  setSoundEnabled(enabled: boolean): void {
-    this.soundEnabled = enabled;
-  }
-
-  /** 惰性创建音频上下文（未使用不创建） */
-  private ensureAudioContext(): BaseAudioContext | null {
-    if (this.audioContext) return this.audioContext;
-    this.audioContext = this.options.createAudioContext();
-    return this.audioContext;
-  }
-
-  /** 确保发声管线就绪（上下文 + 总线 + 共享白噪） */
-  private ensureSoundPipeline(): BaseAudioContext | null {
-    const audioContext = this.ensureAudioContext();
-    if (!audioContext) return null;
-    if (!this.busInputNode) {
-      const globalLowpassFilter = audioContext.createBiquadFilter();
-      globalLowpassFilter.type = 'lowpass';
-      globalLowpassFilter.frequency.value = AUDIO_SYNTHESIS_PARAMETERS.masterBus.globalLowpassHertz;
-
-      const compressorNode = audioContext.createDynamicsCompressor();
-      compressorNode.threshold.value = AUDIO_SYNTHESIS_PARAMETERS.masterBus.compressorThresholdDecibels;
-      compressorNode.knee.value = AUDIO_SYNTHESIS_PARAMETERS.masterBus.compressorKneeDecibels;
-      compressorNode.ratio.value = AUDIO_SYNTHESIS_PARAMETERS.masterBus.compressorRatio;
-      compressorNode.attack.value = AUDIO_SYNTHESIS_PARAMETERS.masterBus.compressorAttackSeconds;
-      compressorNode.release.value = AUDIO_SYNTHESIS_PARAMETERS.masterBus.compressorReleaseSeconds;
-
-      const masterGainNode = audioContext.createGain();
-      masterGainNode.gain.value = AUDIO_SYNTHESIS_PARAMETERS.masterBus.masterGain;
-
-      // 操作音效软化总线（daytime-comfort-baseline：SFX 语音统一经 0.6 增益汇入全局链）
-      const sfxBusGainNode = audioContext.createGain();
-      sfxBusGainNode.gain.value = AUDIO_SYNTHESIS_PARAMETERS.sfxBus.busGain;
-      sfxBusGainNode.connect(globalLowpassFilter);
-
-      globalLowpassFilter.connect(compressorNode);
-      compressorNode.connect(masterGainNode);
-      masterGainNode.connect(audioContext.destination);
-      this.busInputNode = sfxBusGainNode;
-
-      // BGM 子总线：汇入同一总线链，但增益显著低于操作音效（规格）
-      const bgmGainNode = audioContext.createGain();
-      bgmGainNode.gain.value = AUDIO_SYNTHESIS_PARAMETERS.bgm.bgmBusGain;
-      bgmGainNode.connect(globalLowpassFilter);
-      this.bgmBusGainNode = bgmGainNode;
+  private ensureContext(): BaseAudioContext | null { if (!this.context) this.context = this.options.createAudioContext(); return this.context; }
+  private ensurePipeline(): BaseAudioContext | null {
+    const context = this.ensureContext(); if (!context) return null;
+    if (!this.sfxBus) {
+      const lowpass = context.createBiquadFilter(); lowpass.type = 'lowpass'; lowpass.frequency.value = AUDIO_SYNTHESIS_PARAMETERS.masterBus.globalLowpassHertz;
+      const compressor = context.createDynamicsCompressor(); const master = context.createGain();
+      compressor.threshold.value = AUDIO_SYNTHESIS_PARAMETERS.masterBus.compressorThresholdDecibels; compressor.knee.value = AUDIO_SYNTHESIS_PARAMETERS.masterBus.compressorKneeDecibels; compressor.ratio.value = AUDIO_SYNTHESIS_PARAMETERS.masterBus.compressorRatio; compressor.attack.value = AUDIO_SYNTHESIS_PARAMETERS.masterBus.compressorAttackSeconds; compressor.release.value = AUDIO_SYNTHESIS_PARAMETERS.masterBus.compressorReleaseSeconds; master.gain.value = AUDIO_SYNTHESIS_PARAMETERS.masterBus.masterGain;
+      lowpass.connect(compressor); compressor.connect(master); master.connect(context.destination);
+      this.sfxBus = context.createGain(); this.sfxBus.gain.value = AUDIO_SYNTHESIS_PARAMETERS.sfxBus.busGain; this.sfxBus.connect(lowpass);
+      this.bgmBus = context.createGain(); this.bgmBus.gain.value = 0; this.bgmBus.connect(lowpass);
     }
-    return audioContext;
+    return context;
   }
-
-  /** 共享白噪 buffer：全局一次生成（固定种子的确定性白噪，回归测试可复现），开合噪层与摩擦音复用（禁每帧新建） */
-  private getSharedNoiseBuffer(audioContext: BaseAudioContext): AudioBuffer | null {
-    if (!this.sharedNoiseBuffer) {
-      try {
-        const bufferSampleCount = Math.floor(audioContext.sampleRate * 2);
-        const noiseBuffer = audioContext.createBuffer(1, bufferSampleCount, audioContext.sampleRate);
-        const channelData = noiseBuffer.getChannelData(0);
-        // 固定种子确定性白噪：跨运行一致，音频回归断言可复现
-        const nextRandomUnit = createSeededRandomNumberGenerator(0x5eed);
-        for (let sampleIndex = 0; sampleIndex < bufferSampleCount; sampleIndex += 1) {
-          channelData[sampleIndex] = nextRandomUnit() * 2 - 1;
-        }
-        this.sharedNoiseBuffer = noiseBuffer;
-      } catch {
-        return null;
-      }
-    }
-    return this.sharedNoiseBuffer;
+  private noiseBuffer(context: BaseAudioContext): AudioBuffer | null {
+    if (this.noise) return this.noise;
+    try { const buffer = context.createBuffer(1, context.sampleRate * 4, context.sampleRate); const data = buffer.getChannelData(0); const random = createSeededRandomNumberGenerator(0x1e77e7); for (let index = 0; index < data.length; index += 1) data[index] = random() * 2 - 1; this.noise = buffer; return buffer; } catch { return null; }
   }
-
-  /** 首次手势解锁：resume + 静音 buffer 兜底；失败静默降级（规格：解锁前不出声） */
+  isUnlocked(): boolean { return this.unlocked; }
+  isReunlockRequired(): boolean { return this.reunlockRequired; }
+  isPlayingBgm(): boolean { return this.bgmPlaying; }
   async unlock(): Promise<boolean> {
-    const audioContext = this.ensureAudioContext();
-    if (!audioContext) {
-      this.unlocked = false;
-      return false;
-    }
-    const resumed = await resumeAudioContextIfNeeded(audioContext);
-    if (!resumed) {
-      return false;
-    }
-    try {
-      playSilenceBuffer(audioContext);
-    } catch {
-      // 部分环境（能力不完整的上下文）不支持：解锁仍视为成功
-    }
-    this.unlocked = true;
-    this.reunlockRequired = false;
-    return true;
+    const context = this.ensureContext(); if (!context) return false;
+    if (!await resumeAudioContextIfNeeded(context)) return false;
+    try { playSilenceBuffer(context); } catch { /* capability fallback */ }
+    this.unlocked = true; this.reunlockRequired = false; return true;
   }
-
-  /** 音频中断处理：begin 停持续音并标记需重解锁；end 保持标记等待下次手势 */
-  handleAudioInterruption(phase: 'begin' | 'end'): void {
-    if (phase === 'begin') {
-      this.reunlockRequired = true;
-      this.unlocked = false;
-    }
+  handleAudioInterruption(phase: 'begin' | 'end'): void { if (phase === 'begin') { this.unlocked = false; this.reunlockRequired = true; this.stopBgm(); this.stopRustle(); } }
+  handleAppVisibilityChange(visible: boolean): void { if (!visible) this.stopBgm(); else if (this.unlocked) this.startBgm(); }
+  startRustle(): void {
+    if (!this.unlocked || this.rustle) return; const context = this.ensurePipeline(); if (!context || !this.sfxBus) return; const noise = this.noiseBuffer(context); if (!noise) return;
+    this.rustle = startPostcardRustle(context, this.sfxBus, noise, context.currentTime, AUDIO_SYNTHESIS_PARAMETERS.postcardRustle);
   }
-
-  /** 播放一次钱包开合皮革音（含并发抢占：同类上限 3，超限平滑释放最旧） */
-  playWalletClack(direction: 'open' | 'close'): void {
-    if (!this.soundEnabled) return;
-    const audioContext = this.ensureSoundPipeline();
-    if (!audioContext || !this.busInputNode) return;
-    const sharedNoiseBuffer = this.getSharedNoiseBuffer(audioContext);
-    if (!sharedNoiseBuffer) return;
-    const currentSeconds = audioContext.currentTime;
-
-    this.activeClackVoices = this.activeClackVoices.filter(
-      (voice) => voice.stopAtSeconds > currentSeconds,
-    );
-    const { clackVoiceLimit, preemptionReleaseMilliseconds } =
-      AUDIO_SYNTHESIS_PARAMETERS.concurrency;
-    while (this.activeClackVoices.length >= clackVoiceLimit) {
-      const oldestVoice = this.activeClackVoices.shift();
-      oldestVoice?.releaseAt(currentSeconds, preemptionReleaseMilliseconds / 1000);
-    }
-
-    const voiceHandles = scheduleLeatherFoldVoice(
-      audioContext,
-      this.busInputNode,
-      sharedNoiseBuffer,
-      AUDIO_SYNTHESIS_PARAMETERS.walletClack,
-      currentSeconds,
-      direction,
-    );
-    this.activeClackVoices.push(voiceHandles);
+  stopRustle(): void {
+    if (!this.rustle || !this.context) return; stopNoiseVoice(this.rustle, this.context.currentTime, AUDIO_SYNTHESIS_PARAMETERS.postcardRustle.fadeOutSeconds); this.rustle = null;
   }
-
-  getActiveClackVoiceCount(): number {
-    if (!this.audioContext) return 0;
-    const currentSeconds = this.audioContext.currentTime;
-    this.activeClackVoices = this.activeClackVoices.filter(
-      (voice) => voice.stopAtSeconds > currentSeconds,
-    );
-    return this.activeClackVoices.length;
+  ignite(): void {
+    if (!this.unlocked) return; const context = this.ensurePipeline(); if (!context || !this.sfxBus) return; const noise = this.noiseBuffer(context); if (!noise) return;
+    this.stopRustle(); scheduleIgnition(context, this.sfxBus, noise, context.currentTime, AUDIO_SYNTHESIS_PARAMETERS.ignition); scheduleBurningNoise(context, this.sfxBus, noise, context.currentTime, AUDIO_SYNTHESIS_PARAMETERS.burn);
   }
-
-  /** 抓取瞬态沙响：拖拽期间唯一一次摩擦声（首次移动时刻触发，规格 v2.6） */
-  playPaperGrabRustle(normalizedSpeed: number): void {
-    if (!this.soundEnabled) return;
-    const audioContext = this.ensureSoundPipeline();
-    if (!audioContext || !this.busInputNode) return;
-    const sharedNoiseBuffer = this.getSharedNoiseBuffer(audioContext);
-    if (!sharedNoiseBuffer) return;
-    schedulePaperGrabRustle(
-      audioContext,
-      this.busInputNode,
-      sharedNoiseBuffer,
-      AUDIO_SYNTHESIS_PARAMETERS.paperGrabRustle,
-      audioContext.currentTime,
-      normalizedSpeed,
-    );
+  extinguish(): void {
+    if (!this.unlocked) return; const context = this.ensurePipeline(); if (!context || !this.sfxBus) return; const noise = this.noiseBuffer(context); if (!noise) return;
+    scheduleExtinguish(context, this.sfxBus, noise, context.currentTime, AUDIO_SYNTHESIS_PARAMETERS.extinguish);
+    if (this.bgmDry && this.bgmWet) scheduleGenerativePianoNote(context, this.bgmDry, this.bgmWet, { startAtSeconds: context.currentTime, frequencyHertz: midiNoteToFrequencyHertz(52), velocity: 0.28, durationSeconds: 2.2, layer: 'chord' });
   }
-
-  /** 淡入起播生成式钢琴 BGM（规格：解锁后淡入；回前台恢复；幂等由调用方 isPlayingBgm 判断） */
   startBgm(): void {
-    if (!this.bgmEnabled) return;
-    const audioContext = this.ensureSoundPipeline();
-    const bgmBusGainNode = this.bgmBusGainNode;
-    if (!audioContext || !bgmBusGainNode) return;
-
-    const currentSeconds = audioContext.currentTime;
-    const { fadeInSeconds, bgmBusGain } = AUDIO_SYNTHESIS_PARAMETERS.bgm;
-    bgmBusGainNode.gain.cancelScheduledValues(currentSeconds);
-    try {
-      bgmBusGainNode.gain.setValueAtTime(bgmBusGainNode.gain.value, currentSeconds);
-    } catch {
-      bgmBusGainNode.gain.setValueAtTime(0, currentSeconds);
-    }
-    bgmBusGainNode.gain.linearRampToValueAtTime(bgmBusGain, currentSeconds + fadeInSeconds);
-
-    if (!this.bgmDryInputNode || !this.bgmWetSendNode) {
-      const reverbChain = createBgmReverbChain(audioContext, bgmBusGainNode);
-      this.bgmDryInputNode = reverbChain.dryInputNode;
-      this.bgmWetSendNode = reverbChain.wetSendInputNode;
-    }
-
-    this.bgmPlanner = createGenerativePianoPlanner(AUDIO_SYNTHESIS_PARAMETERS.bgm.seed, {
-      chordDurationSeconds: AUDIO_SYNTHESIS_PARAMETERS.bgm.chordDurationSeconds,
-      melodyMinIntervalSeconds: AUDIO_SYNTHESIS_PARAMETERS.bgm.melodyMinIntervalSeconds,
-      melodyMaxIntervalSeconds: AUDIO_SYNTHESIS_PARAMETERS.bgm.melodyMaxIntervalSeconds,
-      melodyCeilingMidi: AUDIO_SYNTHESIS_PARAMETERS.bgm.melodyCeilingMidi,
-    });
-    this.bgmScheduleOriginSeconds = currentSeconds;
-    this.bgmPlaying = true;
-    this.updateBgm();
+    const context = this.ensurePipeline(); if (!this.unlocked || !context || !this.bgmBus || this.bgmPlaying) return;
+    const now = context.currentTime; this.bgmBus.gain.cancelScheduledValues(now); this.bgmBus.gain.setValueAtTime(this.bgmBus.gain.value, now); this.bgmBus.gain.linearRampToValueAtTime(AUDIO_SYNTHESIS_PARAMETERS.bgm.bgmBusGain, now + AUDIO_SYNTHESIS_PARAMETERS.bgm.fadeInSeconds);
+    if (!this.bgmDry || !this.bgmWet) { const chain = createBgmReverbChain(context, this.bgmBus); this.bgmDry = chain.dryInputNode; this.bgmWet = chain.wetSendInputNode; }
+    this.planner = createGenerativePianoPlanner(AUDIO_SYNTHESIS_PARAMETERS.bgm.seed, AUDIO_SYNTHESIS_PARAMETERS.bgm); this.bgmOrigin = now; this.bgmPlaying = true; this.updateBgm();
   }
-
-  /** 每帧调用：前瞻调度后续 BGM 事件（计划器游标保证增量幂等） */
   updateBgm(): void {
-    if (!this.bgmPlaying || !this.bgmPlanner || !this.audioContext) return;
-    if (!this.bgmDryInputNode || !this.bgmWetSendNode) return;
-    const horizonSeconds = this.audioContext.currentTime + 6;
-    const noteEvents = this.bgmPlanner.planNextEvents(
-      horizonSeconds - this.bgmScheduleOriginSeconds,
-    );
-    for (const noteEvent of noteEvents) {
-      scheduleGenerativePianoNote(
-        this.audioContext,
-        this.bgmDryInputNode,
-        this.bgmWetSendNode,
-        {
-          ...noteEvent,
-          startAtSeconds: noteEvent.startAtSeconds + this.bgmScheduleOriginSeconds,
-        },
-      );
-    }
+    if (!this.bgmPlaying || !this.planner || !this.context || !this.bgmDry || !this.bgmWet) return;
+    for (const event of this.planner.planNextEvents(this.context.currentTime + 6 - this.bgmOrigin)) scheduleGenerativePianoNote(this.context, this.bgmDry, this.bgmWet, { ...event, startAtSeconds: event.startAtSeconds + this.bgmOrigin });
   }
-
-  /** 淡出停止 BGM（规格：进后台淡出暂停、关闭开关即时淡出） */
   stopBgm(): void {
-    this.bgmPlaying = false;
-    this.bgmPlanner = null;
-    const audioContext = this.audioContext;
-    const bgmBusGainNode = this.bgmBusGainNode;
-    if (!audioContext || !bgmBusGainNode) return;
-    const currentSeconds = audioContext.currentTime;
-    bgmBusGainNode.gain.cancelScheduledValues(currentSeconds);
-    try {
-      bgmBusGainNode.gain.setValueAtTime(bgmBusGainNode.gain.value, currentSeconds);
-    } catch {
-      // 忽略读取失败
-    }
-    bgmBusGainNode.gain.linearRampToValueAtTime(0, currentSeconds + AUDIO_SYNTHESIS_PARAMETERS.bgm.fadeOutSeconds);
-  }
-
-  setBgmEnabled(enabled: boolean): void {
-    this.bgmEnabled = enabled;
-    if (enabled) {
-      if (this.unlocked) this.startBgm();
-    } else {
-      this.stopBgm();
-    }
-  }
-
-  /** 前后台切换（规格：后台淡出暂停、回前台恢复） */
-  handleAppVisibilityChange(visible: boolean): void {
-    if (visible) {
-      if (this.bgmEnabled && this.unlocked) this.startBgm();
-    } else {
-      this.stopBgm();
-    }
-  }
-
-  /** BGM 是否正在播放（编排层判断恢复起播幂等用） */
-  isPlayingBgm(): boolean {
-    return this.bgmPlaying;
-  }
-
-  /** 里程碑木质 tok 音（每 100 张，cash-drawing 规格） */
-  playMilestoneTok(): void {
-    if (!this.soundEnabled) return;
-    const audioContext = this.ensureSoundPipeline();
-    if (!audioContext || !this.busInputNode) return;
-    scheduleMilestoneTokVoice(
-      audioContext,
-      this.busInputNode,
-      this.getSharedNoiseBuffer(audioContext),
-      AUDIO_SYNTHESIS_PARAMETERS.milestoneTok,
-      audioContext.currentTime,
-    );
+    this.bgmPlaying = false; this.planner = null; if (!this.context || !this.bgmBus) return; const now = this.context.currentTime; this.bgmBus.gain.cancelScheduledValues(now); this.bgmBus.gain.setValueAtTime(this.bgmBus.gain.value, now); this.bgmBus.gain.linearRampToValueAtTime(0, now + AUDIO_SYNTHESIS_PARAMETERS.bgm.fadeOutSeconds);
   }
 }

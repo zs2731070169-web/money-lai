@@ -7,7 +7,7 @@
 
 set -euo pipefail
 
-APP_ID="com.hariku.moneylai"
+APP_ID="com.hariku.letterburning"
 OUTPUT_DIR="packages"
 KEYSTORE_PATH="${HOME}/.android/debug.keystore"
 
@@ -17,6 +17,7 @@ echo "▸ 1/6 构建 Web 产物（tsc + vite）"
 npm run build
 
 echo "▸ 2/6 同步 Capacitor"
+bash scripts/sync-native-branding.sh
 npx cap sync android
 
 echo "▸ 3/6 编译 release APK"
@@ -55,7 +56,7 @@ echo "▸ 6/6 归档产物"
 mkdir -p "$OUTPUT_DIR"
 VERSION_NAME=$(grep -o 'versionName "[^"]*"' android/app/build.gradle | head -1 | cut -d'"' -f2)
 STAMP=$(date +%Y%m%d-%H%M)
-FINAL_APK="$OUTPUT_DIR/money-lai-v${VERSION_NAME}-${STAMP}.apk"
+FINAL_APK="$OUTPUT_DIR/letter-burning-v${VERSION_NAME}-${STAMP}.apk"
 mv "$STAGE_APK" "$FINAL_APK"
 rm -f "$STAGE_APK.idsig"  # apksigner 签名边车文件不随产物分发
 

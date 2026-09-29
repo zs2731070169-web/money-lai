@@ -18,11 +18,13 @@ export const COPY = {
   mileage: '明信片里程',
   gallery: '明信片图鉴',
   appearances: '信封与纸纹',
+  fontPackages: '字体套餐',
+  fontPackageSelectedSuffix: ' · 已选',
   achievements: '成就',
   journal: '手帐',
   exportLongImage: '导出长图',
   clearJournal: '烧掉整本手帐',
-  clearConfirm: '确认清空手帐与已收集图案？',
+  clearConfirm: '确认清空手帐与已收集明信片？',
   cancel: '取消',
   confirm: '确认',
   about: '关于（署名）',
@@ -42,6 +44,12 @@ export const COPY = {
   statSuffix: '张明信片已被燃烧',
 } as const;
 
+export const FONT_PACKAGE_COPY = {
+  'warm-handwriting': { name: '温柔手写风', description: '适合个人书信与情感向文字', preview: '愿今天的风把这一句话轻轻带走' },
+  'classical-elegant': { name: '古典优雅风', description: '适合正式、叙事与慢节奏书信', preview: '愿岁月安静，字句自有回声' },
+  'romantic-literary': { name: '浪漫文艺风', description: 'Cormorant Garamond 与霞鹜文楷中英文混排', preview: '在花影与纸边之间，留一句想念' },
+} as const;
+
 export const APPEARANCE_NAMES = {
   'envelope-kraft': '原色棉纸',
   'envelope-rose': '旧玫瑰',
@@ -53,13 +61,15 @@ export const APPEARANCE_NAMES = {
   'paper-mist': '雾白',
 } as const;
 
+export const POSTCARD_NAMES = {
+  'postcard-lily-paper': '铃兰信纸',
+} as const;
+
 export const ACHIEVEMENT_COPY = {
   'first-draw': { name: '第一封', description: '第一次从信封取出明信片' },
   'first-burn': { name: '一点火光', description: '完成第一张明信片' },
   'first-blank': { name: '留白', description: '完成一张空白明信片' },
-  'patterns-6': { name: '六幅小景', description: '收集六种明信片图案' },
   'mileage-10': { name: '十张纸', description: '本机明信片里程达到十张' },
-  'all-patterns': { name: '一册纸景', description: '收集全部明信片图案' },
 } as const;
 
 export const FLOATING_COPY = [

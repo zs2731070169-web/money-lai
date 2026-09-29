@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { Game } from '../../src/core/game';
 import { LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, createEmptyLetterBurningState, serializeLetterBurningState, settleCompletedPostcard } from '../../src/core/journal/journal-state';
 import { computeLetterSceneLayout } from '../../src/core/render/letter-layout';
-import { computeGalleryLayout } from '../../src/core/render/app-overlay-painter';
+import { computeFontPackageItemRects, computeGalleryLayout } from '../../src/core/render/app-overlay-painter';
 import { computeMenuLayout } from '../../src/core/render/menu-layout';
+import { FONT_PACKAGES } from '../../src/core/render/letter-font';
 import { FakePlatform } from '../helpers/fake-platform';
 
 function click(platform: FakePlatform, x: number, y: number) { platform.touch('start', x, y); platform.touch('end', x, y); }
@@ -20,13 +21,28 @@ async function preparedGame() {
 }
 
 describe('燃信菜单与页面', () => {
-  it('iPhone SE 图鉴可滚动到最后一个图案', () => {
+  it('图鉴使用单张真实信纸素材居中呈现，不恢复旧 24 格代码图案', () => {
     const safe = { top: 20, bottom: 0, left: 0, right: 0 };
     const initial = computeGalleryLayout(375, 667, safe, 0);
-    expect(initial.maximumScroll).toBeGreaterThan(0);
-    expect(initial.cells.some((cell) => cell.patternIndex === 23)).toBe(false);
-    const scrolled = computeGalleryLayout(375, 667, safe, initial.maximumScroll);
-    expect(scrolled.cells.some((cell) => cell.patternIndex === 23)).toBe(true);
+    expect(initial.maximumScroll).toBe(0);
+    expect(initial.cells).toHaveLength(1);
+    expect(initial.cells[0].patternIndex).toBe(0);
+    expect(initial.cells[0].rect.left + initial.cells[0].rect.width / 2).toBeCloseTo(375 / 2);
+  });
+
+  it('字体套餐页可切换并通过新状态键恢复', async () => {
+    const { platform, game, menu } = await preparedGame();
+    const packageRow = menu.rows.find((row) => row.action === 'font-packages');
+    expect(packageRow).toBeDefined();
+    if (!packageRow) return;
+    click(platform, packageRow.rect.left + 20, packageRow.rect.top + packageRow.rect.height / 2);
+    expect(game.getTestSnapshot().page).toBe('font-packages');
+    const rects = computeFontPackageItemRects(platform.viewport.width, platform.safe, FONT_PACKAGES.length);
+    click(platform, rects[2].left + 20, rects[2].top + rects[2].height / 2);
+    expect(game.getTestSnapshot().persisted.activeFontPackageId).toBe('romantic-literary');
+    expect(platform.storage.get(LETTER_BURNING_STORAGE_KEY)).toContain('romantic-literary');
+    click(platform, platform.safe.left + 30, platform.safe.top + 34);
+    expect(game.getTestSnapshot().page).toBe('menu');
   });
 
   it('菜单打开后隔离主界面，并可进入里程、图鉴、外观、成就与关于', async () => {

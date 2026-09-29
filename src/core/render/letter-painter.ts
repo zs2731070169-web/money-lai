@@ -1,30 +1,24 @@
 import { COPY } from '../content/copy';
 import type { BurningState } from '../letter/burning-state';
-import { UNFOLD_DURATION_MS, afterglowVisual, burnProgress, statAlpha } from '../letter/burning-state';
-import { patternById, type PostcardPattern } from '../letter/patterns';
-import { APPEARANCES } from '../meta/postcard-progress';
-import type { LetterSceneLayout, Rect } from './letter-layout';
+import { REDUCED_UNFOLD_DURATION_MS, UNFOLD_DURATION_MS, afterglowVisual, burnProgress, statAlpha } from '../letter/burning-state';
+import { ENVELOPE_ASSET_ANCHORS, type LetterSceneLayout, type Rect } from './letter-layout';
 import type { BurnGeometryBuffer } from './burn-geometry';
 import { updateBurnGeometryInto } from './burn-geometry';
 import { BACKGROUND_SOURCE_HEIGHT as BACKGROUND_PIXEL_HEIGHT, BACKGROUND_SOURCE_WIDTH as BACKGROUND_PIXEL_WIDTH } from './background-composition';
+import { DEFAULT_FONT_PACKAGE_ID, fontStackForPackage, type FontPackageId } from './letter-font';
 
 export const OUTER_FLAME_COLOR = '#D85A30';
 export const INNER_FLAME_COLOR = '#BA7517';
 const INK = '#495853';
-const ENVELOPE_LEFT = 0.064;
-const ENVELOPE_RIGHT = 0.938;
-const ENVELOPE_BOTTOM = 0.95;
-const ENVELOPE_OPENING_SIDE_Y = 0.397;
-const ENVELOPE_OPENING_LEFT_X = 0.45;
-const ENVELOPE_OPENING_RIGHT_X = 0.555;
-const ENVELOPE_OPENING_NOTCH_Y = 0.66;
-
 export interface LetterSceneAssets {
   background?: CanvasImageSource | null;
   /** 竖屏下按视口离屏合成的背景（视口比例、整幅拉伸绘制），优先于 background。 */
   backgroundComposed?: CanvasImageSource | null;
   closedEnvelope?: CanvasImageSource | null;
+  /** 兼容旧调用方的扁平图；生产主循环使用下面两张独立层。 */
   openEnvelope?: CanvasImageSource | null;
+  openEnvelopeBack?: CanvasImageSource | null;
+  openEnvelopeFront?: CanvasImageSource | null;
   letterPaper?: CanvasImageSource | null;
 }
 
@@ -83,72 +77,12 @@ export function paintPaperBackground(
   context.globalAlpha = 1;
 }
 
-/** 图鉴图案是印在真实信纸上的克制墨层，不再充当纸张本身。 */
-export function paintPatternArt(
-  context: CanvasRenderingContext2D,
-  rect: Rect,
-  pattern: PostcardPattern,
-  paintBackground = true,
-): void {
-  const variation = ((pattern.seed % 11) - 5) / 5;
-  const cx = rect.left + rect.width / 2 + variation * rect.width * 0.035;
-  const cy = rect.top + rect.height / 2 - variation * rect.height * 0.025;
-  context.save();
-  if (paintBackground) {
-    context.fillStyle = pattern.background; context.globalAlpha = 0.2;
-    context.fillRect(rect.left, rect.top, rect.width, rect.height);
-  }
-  context.globalAlpha = 0.48;
-  context.strokeStyle = pattern.foreground; context.fillStyle = pattern.foreground;
-  context.lineWidth = Math.max(1, rect.width * 0.008);
-  switch (pattern.motif) {
-    case 'sun':
-      context.beginPath(); context.arc(cx, cy, rect.height * 0.16, 0, Math.PI * 2); context.fill();
-      context.globalAlpha = 0.24; context.beginPath(); context.arc(cx, cy, rect.height * 0.27, 0, Math.PI * 2); context.stroke(); break;
-    case 'hill':
-      context.beginPath(); context.moveTo(rect.left, rect.top + rect.height * 0.72);
-      context.quadraticCurveTo(rect.left + rect.width * 0.28, rect.top + rect.height * 0.25, cx, rect.top + rect.height * 0.7);
-      context.quadraticCurveTo(rect.left + rect.width * 0.78, rect.top + rect.height * 0.38, rect.left + rect.width, rect.top + rect.height * 0.75);
-      context.lineTo(rect.left + rect.width, rect.top + rect.height); context.lineTo(rect.left, rect.top + rect.height); context.closePath(); context.fill(); break;
-    case 'leaf':
-      for (let index = 0; index < 5; index += 1) {
-        const x = rect.left + rect.width * (0.2 + index * 0.15) + variation * index;
-        const y = rect.top + rect.height * (0.7 - (index % 2) * 0.18) + variation * 3;
-        context.beginPath(); context.ellipse(x, y, rect.width * 0.045, rect.height * 0.12, -0.55, 0, Math.PI * 2); context.fill();
-      } break;
-    case 'wave':
-      for (let row = 0; row < 4; row += 1) {
-        const y = rect.top + rect.height * (0.27 + row * 0.13);
-        context.beginPath(); context.moveTo(rect.left + rect.width * 0.08, y);
-        context.bezierCurveTo(cx - rect.width * 0.14, y - rect.height * 0.12, cx + rect.width * 0.1, y + rect.height * 0.12, rect.left + rect.width * 0.92, y); context.stroke();
-      } break;
-    case 'rain':
-      for (let index = 0; index < 12; index += 1) {
-        const x = rect.left + rect.width * (0.12 + (index % 6) * 0.15);
-        const y = rect.top + rect.height * (0.22 + Math.floor(index / 6) * 0.34);
-        context.beginPath(); context.moveTo(x, y); context.lineTo(x - rect.width * 0.03, y + rect.height * 0.1); context.stroke();
-      } break;
-    case 'window': {
-      const size = Math.min(rect.width, rect.height) * 0.42;
-      context.strokeRect(cx - size / 2, cy - size / 2, size, size);
-      context.beginPath(); context.moveTo(cx, cy - size / 2); context.lineTo(cx, cy + size / 2);
-      context.moveTo(cx - size / 2, cy); context.lineTo(cx + size / 2, cy); context.stroke(); break;
-    }
-  }
-  context.globalAlpha = 0.36; context.fillStyle = pattern.accent;
-  context.fillRect(rect.left, rect.top + rect.height - Math.max(3, rect.height * 0.035), rect.width, Math.max(3, rect.height * 0.035));
-  context.restore();
-}
-
-// 信纸素材取样窗口：515×790 RGBA（背景已透明化），窗口为纸面内容包围盒 (13,15)-(503,747)
-const LETTER_PAPER_SOURCE_LEFT = 13;
-const LETTER_PAPER_SOURCE_TOP = 15;
-const LETTER_PAPER_SOURCE_WIDTH = 491;
-const LETTER_PAPER_SOURCE_HEIGHT = 733;
-
-function paperAppearance(id: string) {
-  return APPEARANCES.find((item) => item.id === id && item.kind === 'paper') ?? APPEARANCES[4];
-}
+// topic1 信纸画布为 1024×1536，但纸面实际包围盒约为 (56,51)-(972,1460)。
+// 只取纸面内容，避免透明边距把信纸视觉上缩窄；上下半页仍从同一张原图连续取样。
+const LETTER_PAPER_SOURCE_LEFT = 56;
+const LETTER_PAPER_SOURCE_TOP = 51;
+const LETTER_PAPER_SOURCE_WIDTH = 917;
+const LETTER_PAPER_SOURCE_HEIGHT = 1409;
 
 function paintLetterPaperRegion(
   context: CanvasRenderingContext2D,
@@ -158,11 +92,7 @@ function paintLetterPaperRegion(
   image?: CanvasImageSource | null,
   paperId = 'paper-plain',
 ): void {
-  if (!image) {
-    context.fillStyle = paperAppearance(paperId).base;
-    context.fillRect(rect.left, rect.top, rect.width, rect.height);
-    return;
-  }
+  if (!image) return;
   context.save(); context.filter = appearanceFilter(paperId);
   context.drawImage(
     image,
@@ -194,77 +124,142 @@ export function paintEnvelopeAssetPreview(
   context.restore();
 }
 
+function wrapTextLines(
+  context: CanvasRenderingContext2D,
+  text: string,
+  maximumWidth: number,
+): string[] {
+  const lines: string[] = [];
+  let currentLine = '';
+  const pushCurrentLine = (): void => {
+    if (!currentLine) return;
+    lines.push(currentLine.trimEnd());
+    currentLine = '';
+  };
+  const appendByCharacter = (token: string): void => {
+    for (const character of Array.from(token)) {
+      const candidate = currentLine + character;
+      if (currentLine && context.measureText(candidate).width > maximumWidth) pushCurrentLine();
+      currentLine += character;
+    }
+  };
+  const paragraphs = text.split(/\r?\n/);
+  paragraphs.forEach((paragraph, paragraphIndex) => {
+    const tokens = paragraph.match(/[\u3400-\u9FFF\uF900-\uFAFF]|[^\s\u3400-\u9FFF\uF900-\uFAFF]+|\s+/g) ?? Array.from(paragraph);
+    for (const token of tokens) {
+    if (/^\s+$/.test(token)) {
+      if (currentLine) currentLine += token;
+      continue;
+    }
+    if (context.measureText(currentLine + token).width <= maximumWidth) {
+      currentLine += token;
+      continue;
+    }
+    pushCurrentLine();
+    if (context.measureText(token).width <= maximumWidth) currentLine = token;
+    else appendByCharacter(token);
+    }
+    if (paragraphIndex < paragraphs.length - 1) pushCurrentLine();
+  });
+  pushCurrentLine();
+  return lines;
+}
+
+/**
+ * 文字直接落在原始信纸的中央留白区；不另造“背面”、横线或输入框。
+ * 长句从偏松的手写字号逐级收敛，优先完整呈现用户原文。
+ */
+export function paintPaperWriting(
+  context: CanvasRenderingContext2D,
+  rect: Rect,
+  text: string,
+  prompt: string,
+  fontPackageId: FontPackageId = DEFAULT_FONT_PACKAGE_ID,
+): void {
+  const content = text || prompt;
+  if (!content) return;
+  const writingLeft = rect.left + rect.width * 0.22;
+  const writingTop = rect.top + rect.height * 0.16;
+  const writingWidth = rect.width * 0.56;
+  const writingHeight = rect.height * 0.62;
+  const preferredFontSize = Math.max(10, Math.min(19, rect.width * 0.072));
+  const minimumFontSize = Math.max(9, Math.min(12, rect.width * 0.04));
+  let fontSize = preferredFontSize;
+  let lineHeight = fontSize * 1.55;
+  let lines: string[] = [];
+
+  for (let candidateSize = preferredFontSize; candidateSize >= minimumFontSize; candidateSize -= 1) {
+    context.font = `${candidateSize}px ${fontStackForPackage(fontPackageId)}`;
+    const candidateLines = wrapTextLines(context, content, writingWidth);
+    const candidateLineHeight = candidateSize * 1.55;
+    fontSize = candidateSize;
+    lineHeight = candidateLineHeight;
+    lines = candidateLines;
+    if (candidateLines.length * candidateLineHeight <= writingHeight) break;
+  }
+
+  context.fillStyle = INK;
+  context.globalCompositeOperation = 'multiply';
+  context.textAlign = 'left';
+  context.textBaseline = 'top';
+  context.globalAlpha = text ? 0.78 : 0.26;
+  context.font = `${fontSize}px ${fontStackForPackage(fontPackageId)}`;
+  for (let index = 0; index < lines.length; index += 1) {
+    context.fillText(lines[index], writingLeft, writingTop + index * lineHeight, writingWidth);
+  }
+}
+
 function paintCardFace(
   context: CanvasRenderingContext2D,
   rect: Rect,
-  patternId: string,
   paperId: string,
-  back: boolean,
+  showWriting: boolean,
   text: string,
   prompt: string,
+  fontPackageId: FontPackageId,
   letterPaper?: CanvasImageSource | null,
 ): void {
   context.save();
   context.shadowColor = 'rgba(76,53,38,.18)'; context.shadowBlur = 18; context.shadowOffsetY = 7;
   paintLetterPaperAsset(context, rect, letterPaper, paperId);
   context.shadowColor = 'transparent';
-  if (!back) {
-    const inset = Math.max(7, rect.width * 0.035);
-    paintPatternArt(context, { left: rect.left + inset, top: rect.top + inset, width: rect.width - inset * 2, height: rect.height - inset * 2 }, patternById(patternId), false);
-  } else {
-    context.save(); context.globalAlpha = 0.28; context.fillStyle = '#F7EFE3'; context.fillRect(rect.left + 8, rect.top + 8, rect.width - 16, rect.height - 16); context.restore();
-    context.strokeStyle = 'rgba(107,91,73,.24)'; context.lineWidth = 1;
-    for (let y = rect.top + rect.height * 0.48; y < rect.top + rect.height - 25; y += 28) { context.beginPath(); context.moveTo(rect.left + 24, y); context.lineTo(rect.left + rect.width - 24, y); context.stroke(); }
-    context.fillStyle = INK; context.textAlign = 'left'; context.textBaseline = 'top';
-    context.globalAlpha = text ? 0.92 : 0.32; context.font = "15px ui-rounded,'PingFang SC',sans-serif";
-    context.fillText(text || prompt, rect.left + 25, rect.top + 32, rect.width - 50);
-  }
+  if (showWriting) paintPaperWriting(context, rect, text, prompt, fontPackageId);
   context.restore();
 }
 
 export function computeEnvelopeAssetRect(rect: Rect): Rect {
-  const size = rect.width / (ENVELOPE_RIGHT - ENVELOPE_LEFT);
+  const size = rect.width / (ENVELOPE_ASSET_ANCHORS.right - ENVELOPE_ASSET_ANCHORS.left);
   return {
     left: rect.left + rect.width / 2 - size / 2,
-    top: rect.top + rect.height - ENVELOPE_BOTTOM * size,
+    top: rect.top + rect.height - ENVELOPE_ASSET_ANCHORS.bottom * size,
     width: size,
     height: size,
   };
 }
 
-function paintEnvelopeAssetBack(context: CanvasRenderingContext2D, rect: Rect, image: CanvasImageSource, appearanceId: string): void {
+function paintEnvelopeAssetLayer(
+  context: CanvasRenderingContext2D,
+  rect: Rect,
+  image: CanvasImageSource,
+  appearanceId: string,
+  shadow = false,
+): void {
   const target = computeEnvelopeAssetRect(rect);
   context.save();
-  context.shadowColor = 'rgba(77,55,39,.2)'; context.shadowBlur = 20; context.shadowOffsetY = 8;
+  if (shadow) {
+    context.shadowColor = 'rgba(77,55,39,.2)'; context.shadowBlur = 20; context.shadowOffsetY = 8;
+  }
   context.filter = appearanceFilter(appearanceId);
   context.drawImage(image, target.left, target.top, target.width, target.height);
   context.restore();
 }
 
-function paintEnvelopeAssetFront(context: CanvasRenderingContext2D, rect: Rect, image: CanvasImageSource, appearanceId: string): void {
-  const target = computeEnvelopeAssetRect(rect);
-  const x = (ratio: number) => target.left + ratio * target.width;
-  const y = (ratio: number) => target.top + ratio * target.height;
-  context.save();
-  context.beginPath();
-  context.moveTo(x(ENVELOPE_LEFT), y(ENVELOPE_OPENING_SIDE_Y));
-  context.lineTo(x(ENVELOPE_OPENING_LEFT_X), y(ENVELOPE_OPENING_NOTCH_Y));
-  context.lineTo(x(ENVELOPE_OPENING_RIGHT_X), y(ENVELOPE_OPENING_NOTCH_Y));
-  context.lineTo(x(ENVELOPE_RIGHT), y(ENVELOPE_OPENING_SIDE_Y));
-  context.lineTo(x(ENVELOPE_RIGHT), y(ENVELOPE_BOTTOM));
-  context.lineTo(x(ENVELOPE_LEFT), y(ENVELOPE_BOTTOM));
-  context.closePath(); context.clip();
-  context.filter = appearanceFilter(appearanceId);
-  context.drawImage(image, target.left, target.top, target.width, target.height);
-  context.restore();
-}
-
-function paintBurningCard(context: CanvasRenderingContext2D, rect: Rect, patternId: string, paperId: string, geometry: BurnGeometryBuffer, letterPaper?: CanvasImageSource | null): void {
+function paintBurningCard(context: CanvasRenderingContext2D, rect: Rect, paperId: string, geometry: BurnGeometryBuffer, text: string, fontPackageId: FontPackageId, letterPaper?: CanvasImageSource | null): void {
   context.save();
   context.beginPath(); context.moveTo(rect.left, rect.top + rect.height); context.lineTo(rect.left + rect.width, rect.top + rect.height);
   for (let index = geometry.lineX.length - 1; index >= 0; index -= 1) context.lineTo(geometry.lineX[index], geometry.lineY[index]);
   context.closePath(); context.clip();
-  paintCardFace(context, rect, patternId, paperId, false, '', '', letterPaper); context.restore();
+  paintCardFace(context, rect, paperId, Boolean(text), text, '', fontPackageId, letterPaper); context.restore();
   context.save(); context.lineJoin = 'round'; context.lineCap = 'round'; context.beginPath(); context.moveTo(geometry.lineX[0], geometry.lineY[0] + 3);
   for (let index = 1; index < geometry.lineX.length; index += 1) context.lineTo(geometry.lineX[index], geometry.lineY[index]);
   context.strokeStyle = '#49372F'; context.lineWidth = 11; context.globalAlpha = 0.86; context.stroke();
@@ -291,25 +286,22 @@ function paintBurningCard(context: CanvasRenderingContext2D, rect: Rect, pattern
 }
 
 export interface LetterScenePaintOptions {
-  width: number; height: number; layout: LetterSceneLayout; state: BurningState; patternId: string;
+  width: number; height: number; layout: LetterSceneLayout; state: BurningState;
   prompt: string; envelopeAppearanceId: string; paperAppearanceId: string; burnGeometry: BurnGeometryBuffer; burnSeed: number;
   menuGlowProgress: number;
+  fontPackageId?: FontPackageId;
+  reducedMotion?: boolean;
   assets?: LetterSceneAssets;
 }
 
 function paintFoldedTop(
   context: CanvasRenderingContext2D,
   foldedRect: Rect,
-  patternId: string,
   paperId: string,
   letterPaper?: CanvasImageSource | null,
   creaseAlpha = 1,
 ): void {
   paintLetterPaperRegion(context, foldedRect, 0, LETTER_PAPER_SOURCE_HEIGHT / 2, letterPaper, paperId);
-  const inset = Math.max(7, foldedRect.width * 0.035);
-  const logicalFull = { left: foldedRect.left + inset, top: foldedRect.top + inset, width: foldedRect.width - inset * 2, height: foldedRect.height * 2 - inset * 2 };
-  context.save(); context.beginPath(); context.rect(foldedRect.left, foldedRect.top, foldedRect.width, foldedRect.height); context.clip();
-  paintPatternArt(context, logicalFull, patternById(patternId), false); context.restore();
   if (creaseAlpha > 0) {
     const crease = foldedRect.top + foldedRect.height;
     const gradient = context.createLinearGradient(0, crease - 18, 0, crease);
@@ -323,8 +315,9 @@ function paintFoldedTop(
 function paintFoldedLetter(context: CanvasRenderingContext2D, options: LetterScenePaintOptions): void {
   const { state, layout } = options;
   const startTop = layout.foldedCardRect.top + state.offsetY;
+  const unfoldDurationMs = options.reducedMotion ? REDUCED_UNFOLD_DURATION_MS : UNFOLD_DURATION_MS;
   const progress = state.phase === 'unfold'
-    ? Math.max(0, Math.min(1, state.elapsedMs / UNFOLD_DURATION_MS))
+    ? Math.max(0, Math.min(1, state.elapsedMs / unfoldDurationMs))
     : 0;
   // 自动段明确分成“先把折纸完全抽离信封，再打开下半页”两段，
   // 避免纸张仍被前袋夹住时就在信封里展开。
@@ -340,16 +333,11 @@ function paintFoldedLetter(context: CanvasRenderingContext2D, options: LetterSce
   context.save();
   context.translate(foldedRect.left + foldedRect.width / 2, crease); context.rotate(tiltDegrees * Math.PI / 180); context.translate(-(foldedRect.left + foldedRect.width / 2), -crease);
   context.shadowColor = 'rgba(76,53,38,.18)'; context.shadowBlur = 18; context.shadowOffsetY = 7;
-  paintFoldedTop(context, foldedRect, options.patternId, options.paperAppearanceId, options.assets?.letterPaper, 1 - unfoldEased);
+  paintFoldedTop(context, foldedRect, options.paperAppearanceId, options.assets?.letterPaper, 1 - unfoldEased);
   context.shadowColor = 'transparent';
   if (unfoldEased > 0) {
     const lowerRect = { left: foldedRect.left, top: crease, width: foldedRect.width, height: halfHeight * unfoldEased };
     paintLetterPaperRegion(context, lowerRect, LETTER_PAPER_SOURCE_HEIGHT / 2, LETTER_PAPER_SOURCE_HEIGHT / 2, options.assets?.letterPaper, options.paperAppearanceId);
-    const inset = Math.max(7, foldedRect.width * 0.035);
-    const logicalFull = { left: foldedRect.left + inset, top: foldedRect.top + inset, width: foldedRect.width - inset * 2, height: halfHeight * 2 - inset * 2 };
-    context.save(); context.beginPath(); context.rect(lowerRect.left, lowerRect.top, lowerRect.width, lowerRect.height); context.clip();
-    context.translate(0, crease * (1 - unfoldEased)); context.scale(1, unfoldEased);
-    paintPatternArt(context, logicalFull, patternById(options.patternId), false); context.restore();
   }
   context.restore();
 }
@@ -364,8 +352,8 @@ function paintActivePostcard(context: CanvasRenderingContext2D, options: LetterS
   context.save(); context.translate(rect.left + rect.width / 2, rect.top + rect.height / 2); context.rotate(state.tiltDegrees * Math.PI / 180); context.translate(-(rect.left + rect.width / 2), -(rect.top + rect.height / 2));
   if (state.phase === 'burn' && state.elapsedMs >= 0) {
     updateBurnGeometryInto(options.burnGeometry, rect, burnProgress(state), options.burnSeed);
-    paintBurningCard(context, rect, options.patternId, options.paperAppearanceId, options.burnGeometry, options.assets?.letterPaper);
-  } else paintCardFace(context, rect, options.patternId, options.paperAppearanceId, state.phase !== 'front', state.text, options.prompt, options.assets?.letterPaper);
+    paintBurningCard(context, rect, options.paperAppearanceId, options.burnGeometry, state.text, options.fontPackageId ?? DEFAULT_FONT_PACKAGE_ID, options.assets?.letterPaper);
+  } else paintCardFace(context, rect, options.paperAppearanceId, state.phase !== 'front', state.text, options.prompt, options.fontPackageId ?? DEFAULT_FONT_PACKAGE_ID, options.assets?.letterPaper);
   context.restore();
 }
 
@@ -373,18 +361,21 @@ export function paintLetterScene(context: CanvasRenderingContext2D, options: Let
   paintPaperBackground(context, options.width, options.height, options.assets?.background, options.assets?.backgroundComposed);
   const { state, layout } = options;
   const ritualClear = state.phase === 'fade' || state.phase === 'silence' || state.phase === 'stat';
-  const openEnvelope = options.assets?.openEnvelope;
-  if (openEnvelope) {
-    if (state.phase === 'idle' || state.phase === 'draw' || state.phase === 'unfold') {
-      paintEnvelopeAssetBack(context, layout.envelopeRect, openEnvelope, options.envelopeAppearanceId);
-      if (state.phase === 'idle') paintFoldedTop(context, layout.foldedCardRect, options.patternId, options.paperAppearanceId, options.assets?.letterPaper);
-      else paintActivePostcard(context, options);
-      paintEnvelopeAssetFront(context, layout.envelopeRect, openEnvelope, options.envelopeAppearanceId);
-    } else if (!ritualClear) {
-      paintEnvelopeAssetBack(context, layout.envelopeRect, openEnvelope, options.envelopeAppearanceId);
-      paintEnvelopeAssetFront(context, layout.envelopeRect, openEnvelope, options.envelopeAppearanceId);
-      paintActivePostcard(context, options);
-    }
+  const openEnvelopeBack = options.assets?.openEnvelopeBack;
+  const openEnvelopeFront = options.assets?.openEnvelopeFront;
+  const legacyOpenEnvelope = options.assets?.openEnvelope;
+  if (!ritualClear && openEnvelopeBack && openEnvelopeFront) {
+    // 真实遮挡顺序：后片/内衬 → 信纸 → V 字正面。正面层不再依赖近似裁剪。
+    paintEnvelopeAssetLayer(context, layout.envelopeRect, openEnvelopeBack, options.envelopeAppearanceId, true);
+    if (state.phase === 'idle') paintFoldedTop(context, layout.foldedCardRect, options.paperAppearanceId, options.assets?.letterPaper);
+    else paintActivePostcard(context, options);
+    paintEnvelopeAssetLayer(context, layout.envelopeRect, openEnvelopeFront, options.envelopeAppearanceId);
+  } else if (!ritualClear && legacyOpenEnvelope) {
+    // 仅为旧快照/菜单测试保留；发行入口不会走这条路径。
+    paintEnvelopeAssetLayer(context, layout.envelopeRect, legacyOpenEnvelope, options.envelopeAppearanceId, true);
+    if (state.phase === 'idle') paintFoldedTop(context, layout.foldedCardRect, options.paperAppearanceId, options.assets?.letterPaper);
+    else paintActivePostcard(context, options);
+    paintEnvelopeAssetLayer(context, layout.envelopeRect, legacyOpenEnvelope, options.envelopeAppearanceId);
   } else if (!ritualClear) paintActivePostcard(context, options);
   const glow = afterglowVisual(state);
   if (glow.alpha > 0) {

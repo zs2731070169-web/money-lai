@@ -6,14 +6,25 @@ import { INNER_FLAME_COLOR, OUTER_FLAME_COLOR, paintLetterScene } from '../../sr
 
 function recordingContext() {
   const strokes: string[] = [];
+  const fillRects: Array<[number, number, number, number]> = [];
+  const fillTexts: Array<{ text: string; x: number; y: number; maxWidth?: number; font: string; alpha: number }> = [];
   const clippedPaths: Array<Array<[number, number]>> = [];
   const gradients = { addColorStop() {} };
   let strokeStyle: string | CanvasGradient | CanvasPattern = '';
+  let font = '';
+  let globalAlpha = 1;
+  let globalCompositeOperation = 'source-over';
+  const compositeModes: string[] = [];
   let currentPath: Array<[number, number]> = [];
   const context = new Proxy({}, {
     get(_target, property) {
       if (property === 'strokeStyle') return strokeStyle;
+      if (property === 'font') return font;
+      if (property === 'globalAlpha') return globalAlpha;
+      if (property === 'globalCompositeOperation') return globalCompositeOperation;
       if (property === 'stroke') return () => strokes.push(String(strokeStyle));
+      if (property === 'fillRect') return (x: number, y: number, width: number, height: number) => fillRects.push([x, y, width, height]);
+      if (property === 'fillText') return (value: string, x: number, y: number, maxWidth?: number) => fillTexts.push({ text: value, x, y, maxWidth, font, alpha: globalAlpha });
       if (property === 'beginPath') return () => { currentPath = []; };
       if (property === 'moveTo' || property === 'lineTo') return (x: number, y: number) => currentPath.push([x, y]);
       if (property === 'clip') return () => clippedPaths.push([...currentPath]);
@@ -21,9 +32,18 @@ function recordingContext() {
       if (property === 'createLinearGradient' || property === 'createRadialGradient') return () => gradients;
       return () => undefined;
     },
-    set(target, property, value) { if (property === 'strokeStyle') strokeStyle = value as string; return Reflect.set(target as object, property, value); },
+    set(target, property, value) {
+      if (property === 'strokeStyle') strokeStyle = value as string;
+      if (property === 'font') font = value as string;
+      if (property === 'globalAlpha') globalAlpha = value as number;
+      if (property === 'globalCompositeOperation') {
+        globalCompositeOperation = value as string;
+        compositeModes.push(globalCompositeOperation);
+      }
+      return Reflect.set(target as object, property, value);
+    },
   }) as unknown as CanvasRenderingContext2D;
-  return { context, strokes, clippedPaths };
+  return { context, strokes, fillRects, fillTexts, clippedPaths, compositeModes };
 }
 
 function imageRecordingContext() {
@@ -43,7 +63,7 @@ function imageRecordingContext() {
 
 describe('燃信画师', () => {
   const visualOptions = {
-    patternId: 'postcard-01', envelopeAppearanceId: 'envelope-kraft', paperAppearanceId: 'paper-plain',
+    envelopeAppearanceId: 'envelope-kraft', paperAppearanceId: 'paper-plain',
   } as const;
 
   it('燃烧边界只使用规定外焰与内焰色', () => {
@@ -86,13 +106,13 @@ describe('燃信画师', () => {
       ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
       assets: {
         background: asset('background'), closedEnvelope: asset('closed'),
-        openEnvelope: asset('open'), letterPaper: asset('paper'),
+        openEnvelopeBack: asset('back'), openEnvelopeFront: asset('front'), letterPaper: asset('paper'),
       },
     });
 
-    expect(recording.draws.map((draw) => draw.id)).toEqual(['background', 'open', 'paper', 'open']);
+    expect(recording.draws.map((draw) => draw.id)).toEqual(['background', 'back', 'paper', 'front']);
     expect(recording.draws[1].args).toEqual(recording.draws[3].args);
-    expect(recording.draws[2].args.slice(0, 4)).toEqual([13, 15, 491, 733 / 2]);
+    expect(recording.draws[2].args.slice(0, 4)).toEqual([56, 51, 917, 1409 / 2]);
     expect(recording.draws[2].args.slice(4)).toEqual([
       layout.foldedCardRect.left, layout.foldedCardRect.top,
       layout.foldedCardRect.width, layout.foldedCardRect.height,
@@ -107,7 +127,7 @@ describe('燃信画师', () => {
       paintLetterScene(recording.context, {
         width: 402, height: 874, layout, state, prompt: '想说的是……',
         ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
-        assets: { background: asset('background'), openEnvelope: asset('open'), letterPaper: asset('paper') },
+        assets: { background: asset('background'), openEnvelopeBack: asset('back'), openEnvelopeFront: asset('front'), letterPaper: asset('paper') },
       });
       return recording.draws.filter((draw) => draw.id === 'paper');
     };
@@ -116,13 +136,13 @@ describe('燃信画师', () => {
     const extracting = paintPaper({ ...createBurningState(), phase: 'unfold', offsetY: -72, elapsedMs: 100 });
     const settling = paintPaper({ ...createBurningState(), phase: 'unfold', offsetY: -72, elapsedMs: 225 });
     expect(idle).toHaveLength(1); expect(draw).toHaveLength(1); expect(extracting).toHaveLength(1); expect(settling).toHaveLength(2);
-    for (const call of [idle[0], draw[0], extracting[0], settling[0]]) expect(call.args.slice(0, 4)).toEqual([13, 15, 491, 733 / 2]);
+    for (const call of [idle[0], draw[0], extracting[0], settling[0]]) expect(call.args.slice(0, 4)).toEqual([56, 51, 917, 1409 / 2]);
     expect(draw[0].args.slice(6)).toEqual([layout.foldedCardRect.width, layout.foldedCardRect.height]);
     expect(draw[0].args[5]).toBe(layout.foldedCardRect.top - 36);
     expect(extracting[0].args[5]).toBeLessThan(layout.foldedCardRect.top - 72);
     expect(extracting[0].args[5]).toBeGreaterThan(layout.cardRect.top);
     expect(settling[0].args[5]).toBe(layout.cardRect.top);
-    expect(settling[1].args.slice(0, 4)).toEqual([13, 15 + 733 / 2, 491, 733 / 2]);
+    expect(settling[1].args.slice(0, 4)).toEqual([56, 51 + 1409 / 2, 917, 1409 / 2]);
     expect(settling[1].args[7]).toBeGreaterThan(0);
     expect(settling[1].args[7]).toBeLessThan(layout.cardRect.height / 2);
   });
@@ -134,11 +154,75 @@ describe('燃信画师', () => {
     paintLetterScene(recording.context, {
       width: 402, height: 874, layout, state: { ...createBurningState(), phase: 'front' }, prompt: '想说的是……',
       ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
-      assets: { openEnvelope: asset('open'), letterPaper: asset('paper') },
+      assets: { openEnvelopeBack: asset('back'), openEnvelopeFront: asset('front'), letterPaper: asset('paper') },
     });
     const paper = recording.draws.find((draw) => draw.id === 'paper');
-    expect(paper?.args.slice(0, 4)).toEqual([13, 15, 491, 733]);
+    expect(paper?.args.slice(0, 4)).toEqual([56, 51, 917, 1409]);
     expect(paper?.args.slice(4)).toEqual([layout.cardRect.left, layout.cardRect.top, layout.cardRect.width, layout.cardRect.height]);
+    expect(recording.draws.map((draw) => draw.id)).toEqual(['back', 'paper', 'front']);
+  });
+
+  it('活动阶段按后层、信纸、前袋的固定顺序绘制真实位图', () => {
+    const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
+    const asset = (id: string) => ({ id }) as unknown as CanvasImageSource;
+    for (const phase of ['front', 'back', 'drag', 'rebound', 'burn'] as const) {
+      const recording = imageRecordingContext();
+      paintLetterScene(recording.context, {
+        width: 402, height: 874, layout, state: { ...createBurningState(), phase }, prompt: '想说的是……',
+        ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+        assets: { openEnvelopeBack: asset('back'), openEnvelopeFront: asset('front'), letterPaper: asset('paper') },
+      });
+      expect(recording.draws.map((draw) => draw.id), phase).toEqual(['back', 'paper', 'front']);
+    }
+  });
+
+  it('点按进入书写态仍保留原信纸，无横线或纸面蒙层，并用手写字体自然换行', () => {
+    const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
+    const asset = (id: string) => ({ id }) as unknown as CanvasImageSource;
+    const paintPhase = (phase: 'front' | 'back' | 'burn', text = '') => {
+      const recording = recordingContext();
+      paintLetterScene(recording.context, {
+        width: 402, height: 874, layout,
+        state: { ...createBurningState(), phase, text },
+        prompt: '其实一直没说的是……',
+        ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+        assets: { background: asset('background'), openEnvelopeBack: asset('back'), openEnvelopeFront: asset('front'), letterPaper: asset('paper') },
+      });
+      return recording;
+    };
+    const front = paintPhase('front');
+    const writtenText = '这是用户写下的一句比较长的话，用于确认字迹会在原信纸上自然换行。';
+    const back = paintPhase('back', writtenText);
+    const burning = paintPhase('burn', writtenText);
+    const english = paintPhase('back', 'handwritten test wraps naturally');
+
+    expect(back.fillRects).toEqual(front.fillRects);
+    expect(back.strokes).toEqual(front.strokes);
+    expect(back.fillTexts.length).toBeGreaterThan(1);
+    expect(back.fillTexts.map((item) => item.text).join('')).toBe(writtenText);
+    expect(burning.fillTexts.map((item) => item.text).join('')).toBe(writtenText);
+    expect(english.fillTexts.map((item) => item.text)).toEqual(['handwritten', 'test wraps', 'naturally']);
+    expect(back.compositeModes).toContain('multiply');
+    for (const line of back.fillTexts) {
+      expect(line.font).toContain('Letter LXGW WenKai');
+      expect(line.x).toBeGreaterThan(layout.cardRect.left);
+      expect(line.y).toBeGreaterThan(layout.cardRect.top);
+      expect(line.y).toBeLessThan(layout.cardRect.top + layout.cardRect.height);
+    }
+  });
+
+  it('书写态使用所选字体套餐的中英文族名栈', () => {
+    const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
+    const recording = recordingContext();
+    paintLetterScene(recording.context, {
+      width: 402, height: 874, layout,
+      state: { ...createBurningState(), phase: 'back', text: '一封信 with all my heart' },
+      prompt: '其实一直没说的是……', ...visualOptions, fontPackageId: 'romantic-literary',
+      burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+      assets: { openEnvelopeBack: { id: 'back' } as unknown as CanvasImageSource, openEnvelopeFront: { id: 'front' } as unknown as CanvasImageSource, letterPaper: { id: 'paper' } as unknown as CanvasImageSource },
+    });
+    expect(recording.fillTexts.some((line) => line.font.includes('Letter Cormorant Garamond'))).toBe(true);
+    expect(recording.compositeModes).toContain('multiply');
   });
 
   it('已合成背景整幅拉伸绘制且优先于原图 cover 裁切', () => {

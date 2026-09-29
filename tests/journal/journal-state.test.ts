@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  LETTER_BURNING_STORAGE_KEY, clearJournal, createEmptyLetterBurningState,
+  LETTER_BURNING_STORAGE_KEY, activateFontPackage, clearJournal, createEmptyLetterBurningState,
   parseLetterBurningState, serializeLetterBurningState, settleCompletedPostcard,
 } from '../../src/core/journal/journal-state';
 
@@ -27,5 +27,11 @@ describe('燃信本地状态', () => {
     expect(cleared.postcardMileage).toBe(1);
     expect(cleared.achievementIds.length).toBeGreaterThan(0);
     expect(cleared.statCadenceCount).toBe(1);
+  });
+
+  it('字体套餐选择可持久化且未知值回退', () => {
+    const selected = activateFontPackage(createEmptyLetterBurningState(), 'romantic-literary');
+    expect(parseLetterBurningState(serializeLetterBurningState(selected)).activeFontPackageId).toBe('romantic-literary');
+    expect(parseLetterBurningState(JSON.stringify({ ...selected, activeFontPackageId: 'missing' })).activeFontPackageId).toBe('warm-handwriting');
   });
 });

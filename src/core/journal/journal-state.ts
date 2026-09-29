@@ -1,5 +1,6 @@
-import { POSTCARD_PATTERNS } from '../letter/patterns';
+import { DEFAULT_POSTCARD_ID, normalizePostcardId } from '../letter/postcard-catalog';
 import { APPEARANCES, evaluateAchievementIds, unlockedAppearanceIds } from '../meta/postcard-progress';
+import { DEFAULT_FONT_PACKAGE_ID, fontPackageById, type FontPackageId } from '../render/letter-font';
 
 export const LETTER_BURNING_STORAGE_KEY = 'letter-burning/state/v1';
 export const PRIVACY_CONSENT_STORAGE_KEY = 'letter-burning/privacy-consent/v1';
@@ -20,6 +21,7 @@ export interface LetterBurningPersistedState {
   unlockedAppearanceIds: string[];
   activeEnvelopeAppearanceId: string;
   activePaperAppearanceId: string;
+  activeFontPackageId: FontPackageId;
   achievementIds: string[];
   statCadenceCount: number;
 }
@@ -34,6 +36,7 @@ export function createEmptyLetterBurningState(): LetterBurningPersistedState {
     unlockedAppearanceIds: ['envelope-kraft', 'paper-plain'],
     activeEnvelopeAppearanceId: 'envelope-kraft',
     activePaperAppearanceId: 'paper-plain',
+    activeFontPackageId: DEFAULT_FONT_PACKAGE_ID,
     achievementIds: [],
     statCadenceCount: 0,
   };
@@ -49,16 +52,17 @@ export function parseLetterBurningState(serialized: string | null): LetterBurnin
   try {
     const value = JSON.parse(serialized) as Record<string, unknown>;
     if (value.version !== 1) return createEmptyLetterBurningState();
-    const patternIds = new Set(POSTCARD_PATTERNS.map((pattern) => pattern.id));
     const appearanceIds = new Set(APPEARANCES.map((appearance) => appearance.id));
     const entries = Array.isArray(value.journalEntries)
-      ? value.journalEntries.filter((entry): entry is JournalEntry => {
-          if (typeof entry !== 'object' || entry === null) return false;
+      ? value.journalEntries.flatMap((entry): JournalEntry[] => {
+          if (typeof entry !== 'object' || entry === null) return [];
           const candidate = entry as Partial<JournalEntry>;
+          const patternId = normalizePostcardId(candidate.patternId);
           return typeof candidate.id === 'string' && typeof candidate.createdAtIso === 'string'
-            && typeof candidate.patternId === 'string' && patternIds.has(candidate.patternId)
-            && typeof candidate.text === 'string';
-        }).map((entry) => ({ ...entry }))
+            && patternId !== null && typeof candidate.text === 'string'
+            ? [{ id: candidate.id, createdAtIso: candidate.createdAtIso, patternId, text: candidate.text }]
+            : [];
+        })
       : [];
     const mileage = Number.isSafeInteger(value.postcardMileage) && Number(value.postcardMileage) >= 0
       ? Number(value.postcardMileage) : 0;
@@ -67,15 +71,22 @@ export function parseLetterBurningState(serialized: string | null): LetterBurnin
       ? value.activeEnvelopeAppearanceId : 'envelope-kraft';
     const paper = typeof value.activePaperAppearanceId === 'string' && unlocked.includes(value.activePaperAppearanceId)
       ? value.activePaperAppearanceId : 'paper-plain';
+    const fontPackageId = fontPackageById(typeof value.activeFontPackageId === 'string' ? value.activeFontPackageId : DEFAULT_FONT_PACKAGE_ID).id;
+    const collectedPatternIds = [...new Set(
+      stringArray(value.collectedPatternIds)
+        .map((id) => normalizePostcardId(id))
+        .filter((id): id is string => id !== null),
+    )];
     return {
       version: 1,
       privacyConsent: value.privacyConsent === true,
       journalEntries: entries,
       postcardMileage: mileage,
-      collectedPatternIds: stringArray(value.collectedPatternIds, patternIds),
+      collectedPatternIds,
       unlockedAppearanceIds: [...new Set([...unlockedAppearanceIds(mileage), ...unlocked])],
       activeEnvelopeAppearanceId: envelope,
       activePaperAppearanceId: paper,
+      activeFontPackageId: fontPackageId,
       achievementIds: stringArray(value.achievementIds),
       statCadenceCount: Number.isSafeInteger(value.statCadenceCount) && Number(value.statCadenceCount) >= 0
         ? Number(value.statCadenceCount) : 0,
@@ -93,18 +104,19 @@ export function settleCompletedPostcard(
   state: LetterBurningPersistedState,
   entry: JournalEntry,
 ): LetterBurningPersistedState {
-  const collected = state.collectedPatternIds.includes(entry.patternId)
-    ? [...state.collectedPatternIds] : [...state.collectedPatternIds, entry.patternId];
+  const patternId = normalizePostcardId(entry.patternId) ?? DEFAULT_POSTCARD_ID;
+  const normalizedEntry = { ...entry, patternId };
+  const collected = state.collectedPatternIds.includes(patternId)
+    ? [...state.collectedPatternIds] : [...state.collectedPatternIds, patternId];
   const mileage = state.postcardMileage + 1;
   const achievements = evaluateAchievementIds({
     mileage,
-    collectedPatternIds: collected,
-    completedBlank: entry.text.length === 0,
+    completedBlank: normalizedEntry.text.length === 0,
     drewCard: true,
   });
   return {
     ...state,
-    journalEntries: [...state.journalEntries, { ...entry }],
+    journalEntries: [...state.journalEntries, normalizedEntry],
     postcardMileage: mileage,
     collectedPatternIds: collected,
     unlockedAppearanceIds: unlockedAppearanceIds(mileage),
@@ -127,4 +139,13 @@ export function activateAppearance(
   return definition.kind === 'envelope'
     ? { ...state, activeEnvelopeAppearanceId: appearanceId }
     : { ...state, activePaperAppearanceId: appearanceId };
+}
+
+export function activateFontPackage(
+  state: LetterBurningPersistedState,
+  fontPackageId: string,
+): LetterBurningPersistedState {
+  const definition = fontPackageById(fontPackageId);
+  if (definition.id !== fontPackageId) return state;
+  return { ...state, activeFontPackageId: definition.id };
 }

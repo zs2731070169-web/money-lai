@@ -1,4 +1,3 @@
-import { POSTCARD_PATTERNS } from '../letter/patterns';
 import { ACHIEVEMENT_COPY, APPEARANCE_NAMES } from '../content/copy';
 
 export type AppearanceKind = 'envelope' | 'paper';
@@ -32,9 +31,7 @@ export const LETTER_ACHIEVEMENTS: readonly AchievementDefinition[] = [
   { id: 'first-draw', ...ACHIEVEMENT_COPY['first-draw'] },
   { id: 'first-burn', ...ACHIEVEMENT_COPY['first-burn'] },
   { id: 'first-blank', ...ACHIEVEMENT_COPY['first-blank'] },
-  { id: 'patterns-6', ...ACHIEVEMENT_COPY['patterns-6'] },
   { id: 'mileage-10', ...ACHIEVEMENT_COPY['mileage-10'] },
-  { id: 'all-patterns', ...ACHIEVEMENT_COPY['all-patterns'] },
 ] as const;
 
 export function unlockedAppearanceIds(mileage: number): string[] {
@@ -43,7 +40,6 @@ export function unlockedAppearanceIds(mileage: number): string[] {
 
 export function evaluateAchievementIds(options: {
   mileage: number;
-  collectedPatternIds: readonly string[];
   completedBlank: boolean;
   drewCard: boolean;
 }): string[] {
@@ -51,9 +47,7 @@ export function evaluateAchievementIds(options: {
   if (options.drewCard) ids.push('first-draw');
   if (options.mileage >= 1) ids.push('first-burn');
   if (options.completedBlank) ids.push('first-blank');
-  if (options.collectedPatternIds.length >= 6) ids.push('patterns-6');
   if (options.mileage >= 10) ids.push('mileage-10');
-  if (options.collectedPatternIds.length >= POSTCARD_PATTERNS.length) ids.push('all-patterns');
   return ids;
 }
 

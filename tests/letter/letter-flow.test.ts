@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Game } from '../../src/core/game';
 import { LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, createEmptyLetterBurningState, serializeLetterBurningState, settleCompletedPostcard, type LetterBurningPersistedState } from '../../src/core/journal/journal-state';
-import { computeLetterSceneLayout } from '../../src/core/render/letter-layout';
+import { computeLetterSceneLayout, containsPoint } from '../../src/core/render/letter-layout';
 import { FakePlatform } from '../helpers/fake-platform';
 
 async function readyGame(textResult: string | null = '原文', initialState?: LetterBurningPersistedState) {
@@ -90,5 +90,43 @@ describe('信封到燃烧的端到端链路', () => {
     const offline = await readyGame('离线内容'); offline.platform.countResult = null; await burnCurrentCard(offline.platform, offline.layout);
     for (let index = 0; index < 26; index += 1) offline.platform.tick(100);
     expect(offline.game.getTestSnapshot().phase).toBe('idle'); expect(offline.game.getTestSnapshot().persisted.journalEntries).toHaveLength(1);
+  });
+});
+
+describe('信封抽取命中区', () => {
+  /** 信纸上缘、袋口带与信封主体在命中区上必须连成一块，指腹落在任何可见纸封区域都能起抽。 */
+  const dragUp = (platform: FakePlatform, layout: ReturnType<typeof computeLetterSceneLayout>, y: number) => {
+    const x = layout.envelopeRect.left + layout.envelopeRect.width / 2;
+    platform.touch('start', x, y); platform.now += 100; platform.touch('move', x, y - 120); platform.touch('end', x, y - 120);
+  };
+
+  it('命中区覆盖露出的信纸上缘、袋口带与信封主体，且不越界到上方背景', () => {
+    const platform = new FakePlatform();
+    const layout = computeLetterSceneLayout(platform.viewport.width, platform.viewport.height, platform.safe);
+    const centerX = layout.envelopeRect.left + layout.envelopeRect.width / 2;
+    expect(layout.envelopeGrabRect.top).toBe(layout.foldedCardRect.top);
+    expect(layout.envelopeGrabRect.top + layout.envelopeGrabRect.height).toBeCloseTo(layout.envelopeRect.top + layout.envelopeRect.height, 5);
+    expect(containsPoint(layout.envelopeGrabRect, centerX, layout.foldedCardRect.top + 2)).toBe(true);
+    expect(containsPoint(layout.envelopeGrabRect, centerX, (layout.envelopeOpeningSideY + layout.envelopeRect.top) / 2)).toBe(true);
+    expect(containsPoint(layout.envelopeGrabRect, centerX, layout.envelopeRect.top + layout.envelopeRect.height - 2)).toBe(true);
+    expect(containsPoint(layout.envelopeGrabRect, centerX, layout.foldedCardRect.top - 10)).toBe(false);
+  });
+
+  it('从露出的信纸上缘起抽可完成抽取', async () => {
+    const { game, platform, layout } = await readyGame();
+    dragUp(platform, layout, layout.exposedCardRect.top + layout.exposedCardRect.height / 2);
+    expect(game.getTestSnapshot().phase).toBe('unfold');
+  });
+
+  it('从袋口锚线与信封外框之间的带状区起抽可完成抽取（回归：原为无响应死区）', async () => {
+    const { game, platform, layout } = await readyGame();
+    dragUp(platform, layout, (layout.envelopeOpeningSideY + layout.envelopeRect.top) / 2);
+    expect(game.getTestSnapshot().phase).toBe('unfold');
+  });
+
+  it('信纸上方空白背景上拖动不触发抽取', async () => {
+    const { game, platform, layout } = await readyGame();
+    dragUp(platform, layout, layout.foldedCardRect.top - 40);
+    expect(game.getTestSnapshot().phase).toBe('idle');
   });
 });

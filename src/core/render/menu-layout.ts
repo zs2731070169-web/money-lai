@@ -2,7 +2,7 @@ import type { SafeAreaInsets } from '../platform';
 import { COPY } from '../content/copy';
 import type { Rect } from './letter-layout';
 
-export type AppPage = 'main' | 'menu' | 'mileage' | 'gallery' | 'appearances' | 'achievements' | 'journal' | 'about';
+export type AppPage = 'main' | 'menu' | 'mileage' | 'gallery' | 'appearances' | 'font-packages' | 'achievements' | 'journal' | 'about';
 export type MenuAction = Exclude<AppPage, 'main' | 'menu'> | 'export' | 'help' | 'clear' | 'privacy';
 export interface MenuRow { action: MenuAction; label: string; rect: Rect }
 export interface MenuLayout { panelRect: Rect; closeRect: Rect; rows: MenuRow[]; disclaimerY: number }
@@ -13,6 +13,7 @@ const ITEMS: ReadonlyArray<{ action: MenuAction; label: string }> = [
   { action: 'journal', label: COPY.journal }, { action: 'export', label: COPY.exportLongImage },
   { action: 'help', label: COPY.youthLine }, { action: 'clear', label: COPY.clearJournal },
   { action: 'about', label: COPY.about }, { action: 'privacy', label: COPY.privacyPolicy },
+  { action: 'font-packages', label: COPY.fontPackages },
 ];
 
 export function computeMenuLayout(width: number, height: number, safe: SafeAreaInsets): MenuLayout {

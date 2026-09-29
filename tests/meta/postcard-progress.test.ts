@@ -11,7 +11,7 @@ describe('明信片本机元进程', () => {
   });
 
   it('成就只使用燃信累计条件', () => {
-    const ids = evaluateAchievementIds({ mileage: 10, collectedPatternIds: Array.from({ length: 6 }, (_, index) => `postcard-0${index + 1}`), completedBlank: true, drewCard: true });
-    expect(ids).toEqual(expect.arrayContaining(['first-draw', 'first-burn', 'first-blank', 'patterns-6', 'mileage-10']));
+    const ids = evaluateAchievementIds({ mileage: 10, completedBlank: true, drewCard: true });
+    expect(ids).toEqual(['first-draw', 'first-burn', 'first-blank', 'mileage-10']);
   });
 });

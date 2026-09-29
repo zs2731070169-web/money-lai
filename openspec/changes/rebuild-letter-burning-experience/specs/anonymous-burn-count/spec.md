@@ -5,7 +5,7 @@
 ## ADDED Requirements
 
 ### Requirement: 匿名增量计数
-每张明信片燃烧完成后，应用 SHALL 最多向自建 serverless 端点发送一次增量请求；请求 MUST NOT 包含用户文字、图案编号、账号、设备标识、IP 派生标识、Cookie 或持久客户端标识。端点 SHALL 返回包含本次燃烧在内的最近 24 小时燃烧总数。
+每张明信片燃烧完成后，应用 SHALL 最多向自建 serverless 端点发送一次增量请求；请求 MUST NOT 包含用户文字、明信片资产编号、账号、设备标识、IP 派生标识、Cookie 或持久客户端标识。端点 SHALL 返回包含本次燃烧在内的最近 24 小时燃烧总数。
 
 #### Scenario: 成功计数
 - **WHEN** 明信片完成燃烧且端点可用

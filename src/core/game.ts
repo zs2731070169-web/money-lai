@@ -4,7 +4,7 @@ import { shouldDisplayBurnCount } from './count/burn-count';
 import { computeJournalExportPlan, paintJournalExport } from './journal/export';
 import { computeJournalLayout, maximumJournalScroll } from './journal/journal-layout';
 import {
-  LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, activateAppearance,
+  LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, activateAppearance, activateFontPackage,
   clearJournal, createEmptyLetterBurningState, parseLetterBurningState,
   serializeLetterBurningState, settleCompletedPostcard, type LetterBurningPersistedState,
 } from './journal/journal-state';
@@ -13,10 +13,11 @@ import {
   endDraw, endThrow, flipToBack, movePointer, resolveCount, setPostcardText,
   type BurningEffect, type BurningState,
 } from './letter/burning-state';
-import { chooseNextPatternId, patternById } from './letter/patterns';
+import { DEFAULT_POSTCARD_ID, chooseNextPostcardId, postcardById } from './letter/postcard-catalog';
 import { APPEARANCES } from './meta/postcard-progress';
+import { FONT_PACKAGES } from './render/letter-font';
 import type { NormalizedTouchPoint, PlatformAdapter, PrimaryCanvas, TouchPhase } from './platform';
-import { computeGalleryLayout, computePageItemRects, hitJournalCell, pageBackRect, paintAppOverlay } from './render/app-overlay-painter';
+import { computeFontPackageItemRects, computeGalleryLayout, computePageItemRects, hitJournalCell, pageBackRect, paintAppOverlay } from './render/app-overlay-painter';
 import { createBurnGeometryBuffer } from './render/burn-geometry';
 import { paintAdaptiveBackground, planAdaptiveBackground } from './render/background-composition';
 import { computeLetterSceneLayout, containsPoint } from './render/letter-layout';
@@ -35,7 +36,9 @@ export interface GameOptions {
   letterSceneAssetUrls?: {
     background: string;
     closedEnvelope: string;
-    openEnvelope: string;
+    openEnvelope?: string;
+    openEnvelopeBack?: string;
+    openEnvelopeFront?: string;
     letterPaper: string;
   };
 }
@@ -59,7 +62,7 @@ export class Game {
   private canvas: PrimaryCanvas | null = null;
   private burning: BurningState = createBurningState();
   private persisted: LetterBurningPersistedState = createEmptyLetterBurningState();
-  private patternId = 'postcard-01';
+  private patternId = DEFAULT_POSTCARD_ID;
   private prompt: string = BACK_PROMPTS[0];
   private page: AppPage = 'main';
   private ready = false;
@@ -88,13 +91,20 @@ export class Game {
 
   private async loadLetterSceneAssets(): Promise<void> {
     if (!this.letterSceneAssetUrls) return;
-    const [background, closedEnvelope, openEnvelope, letterPaper] = await Promise.all([
+    const openEnvelopeBackUrl = this.letterSceneAssetUrls.openEnvelopeBack ?? this.letterSceneAssetUrls.openEnvelope;
+    const openEnvelopeFrontUrl = this.letterSceneAssetUrls.openEnvelopeFront ?? this.letterSceneAssetUrls.openEnvelope;
+    const [background, closedEnvelope, openEnvelopeBack, openEnvelopeFront, letterPaper] = await Promise.all([
       this.platform.loadBundledImage(this.letterSceneAssetUrls.background),
       this.platform.loadBundledImage(this.letterSceneAssetUrls.closedEnvelope),
-      this.platform.loadBundledImage(this.letterSceneAssetUrls.openEnvelope),
+      openEnvelopeBackUrl ? this.platform.loadBundledImage(openEnvelopeBackUrl) : Promise.resolve(null),
+      openEnvelopeFrontUrl ? this.platform.loadBundledImage(openEnvelopeFrontUrl) : Promise.resolve(null),
       this.platform.loadBundledImage(this.letterSceneAssetUrls.letterPaper),
     ]);
-    this.letterSceneAssets = { background, closedEnvelope, openEnvelope, letterPaper };
+    this.letterSceneAssets = {
+      background, closedEnvelope, openEnvelopeBack, openEnvelopeFront,
+      openEnvelope: openEnvelopeFront ?? openEnvelopeBack,
+      letterPaper,
+    };
     this.backgroundImage = background;
   }
 
@@ -125,7 +135,7 @@ export class Game {
   }
 
   private chooseNextCard(): void {
-    this.patternId = chooseNextPatternId(this.persisted.collectedPatternIds, () => this.platform.randomUnit());
+    this.patternId = chooseNextPostcardId(this.persisted.collectedPatternIds, () => this.platform.randomUnit());
     this.prompt = BACK_PROMPTS[Math.floor(this.platform.randomUnit() * BACK_PROMPTS.length) % BACK_PROMPTS.length];
   }
 
@@ -144,7 +154,7 @@ export class Game {
     if (phase === 'start') {
       this.touchStart = { x: point.positionX, y: point.positionY, atMs: now, lastY: point.positionY };
       if (containsPoint(layout.menuRect, point.positionX, point.positionY) && this.burning.phase === 'idle') return;
-      if (this.burning.phase === 'idle' && (containsPoint(layout.exposedCardRect, point.positionX, point.positionY) || containsPoint(layout.envelopeRect, point.positionX, point.positionY))) {
+      if (this.burning.phase === 'idle' && containsPoint(layout.envelopeGrabRect, point.positionX, point.positionY)) {
         this.burning = beginDraw(this.burning, point.pointerId, point.positionY, now); this.audio.startRustle();
       } else if (this.burning.phase === 'back' && containsPoint(layout.cardRect, point.positionX, point.positionY)) {
         this.burning = beginThrow(this.burning, point.pointerId, point.positionY, now); this.audio.startRustle();
@@ -218,6 +228,10 @@ export class Game {
     if (this.page === 'appearances') {
       const rects = computePageItemRects(viewport.width, safe, APPEARANCES.length); const index = rects.findIndex((rect) => containsPoint(rect, point.positionX, point.positionY));
       if (index >= 0) { const next = activateAppearance(this.persisted, APPEARANCES[index].id); if (next !== this.persisted) { this.persisted = next; void this.persistCurrentState(); } }
+    }
+    if (this.page === 'font-packages') {
+      const rects = computeFontPackageItemRects(viewport.width, safe, FONT_PACKAGES.length); const index = rects.findIndex((rect) => containsPoint(rect, point.positionX, point.positionY));
+      if (index >= 0) { const next = activateFontPackage(this.persisted, FONT_PACKAGES[index].id); if (next !== this.persisted) { this.persisted = next; void this.persistCurrentState(); } }
     }
   }
 
@@ -348,7 +362,7 @@ export class Game {
     const layout = computeLetterSceneLayout(viewport.width, viewport.height, safe);
     const glowProgress = this.menuGlowStartedAt === null ? 0 : Math.min(1, (this.platform.nowMilliseconds() - this.menuGlowStartedAt) / 800);
     if (glowProgress >= 1) this.menuGlowStartedAt = null;
-    paintLetterScene(context, { width: viewport.width, height: viewport.height, layout, state: this.burning, patternId: this.patternId, prompt: this.prompt, envelopeAppearanceId: this.persisted.activeEnvelopeAppearanceId, paperAppearanceId: this.persisted.activePaperAppearanceId, burnGeometry: this.burnGeometry, burnSeed: patternById(this.patternId).seed + this.persisted.postcardMileage, menuGlowProgress: glowProgress, assets: this.letterSceneAssets });
+    paintLetterScene(context, { width: viewport.width, height: viewport.height, layout, state: this.burning, prompt: this.prompt, envelopeAppearanceId: this.persisted.activeEnvelopeAppearanceId, paperAppearanceId: this.persisted.activePaperAppearanceId, fontPackageId: this.persisted.activeFontPackageId, burnGeometry: this.burnGeometry, burnSeed: postcardById(this.patternId).burnSeed + this.persisted.postcardMileage, menuGlowProgress: glowProgress, reducedMotion: this.reducedMotion, assets: this.letterSceneAssets });
     if (this.page !== 'main') paintAppOverlay(context, { width: viewport.width, height: viewport.height, safeArea: safe, page: this.page, state: this.persisted, journalScroll: this.journalScroll, galleryScroll: this.galleryScroll, selectedEntryIndex: this.selectedJournalEntry, background: this.letterSceneAssets.background, backgroundComposed: this.letterSceneAssets.backgroundComposed, openEnvelope: this.letterSceneAssets.openEnvelope, letterPaper: this.letterSceneAssets.letterPaper });
     if (this.transitionElapsedMs !== null) { const durationMs = this.reducedMotion ? REDUCED_TRANSITION_DURATION_MS : TRANSITION_DURATION_MS; const ratio = Math.min(1, this.transitionElapsedMs / durationMs); context.fillStyle = `rgba(78,61,49,${0.38 * Math.sin(ratio * Math.PI)})`; context.fillRect(0, 0, viewport.width, viewport.height); }
     if (this.clearJournalElapsedMs !== null) paintPageBurn(context, viewport.width, viewport.height, Math.min(1, this.clearJournalElapsedMs / BURN_DURATION_MS), this.clearBurnGeometry, 104729);

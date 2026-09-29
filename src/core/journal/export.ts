@@ -1,7 +1,6 @@
 import { COPY } from '../content/copy';
 import type { JournalEntry } from './journal-state';
-import { patternById } from '../letter/patterns';
-import { paintLetterPaperAsset, paintPatternArt } from '../render/letter-painter';
+import { paintLetterPaperAsset } from '../render/letter-painter';
 
 export const EXPORT_MAX_PIXELS = 16_000_000;
 export const EXPORT_MAX_DIMENSION = 16_384;
@@ -48,8 +47,6 @@ export function paintJournalExport(
         const paperHeight = cellHeight - 38; const paperWidth = paperHeight * 491 / 733;
         const paperRect = { left: left + (cellWidth - paperWidth) / 2, top, width: paperWidth, height: paperHeight };
         paintLetterPaperAsset(context, paperRect, letterPaper, paperAppearanceId);
-        const inset = Math.max(6, paperWidth * 0.05);
-        paintPatternArt(context, { left: paperRect.left + inset, top: paperRect.top + inset, width: paperRect.width - inset * 2, height: paperRect.height - inset * 2 }, patternById(entry.patternId), false);
         context.fillStyle = '#495853'; context.textAlign = 'left'; context.font = "18px ui-rounded,'PingFang SC',sans-serif"; context.fillText(entry.createdAtIso.slice(0, 10), left, top + cellHeight - 13);
       }
     }

@@ -1,14 +1,15 @@
-import { COPY, formatAppearanceName, formatAppearanceUnlockMileage } from '../content/copy';
+import { COPY, FONT_PACKAGE_COPY, formatAppearanceName, formatAppearanceUnlockMileage } from '../content/copy';
 import type { JournalEntry, LetterBurningPersistedState } from '../journal/journal-state';
 import { computeJournalLayout } from '../journal/journal-layout';
-import { patternById, POSTCARD_PATTERNS } from '../letter/patterns';
+import { POSTCARD_CATALOG } from '../letter/postcard-catalog';
 import { APPEARANCES, LETTER_ACHIEVEMENTS } from '../meta/postcard-progress';
+import { FONT_PACKAGES, fontStackForPackage } from './letter-font';
 import type { SafeAreaInsets } from '../platform';
 import type { Rect } from './letter-layout';
 import { containsPoint } from './letter-layout';
 import type { AppPage, MenuLayout } from './menu-layout';
 import { computeMenuLayout } from './menu-layout';
-import { paintEnvelopeAssetPreview, paintLetterPaperAsset, paintPaperBackground, paintPatternArt } from './letter-painter';
+import { paintEnvelopeAssetPreview, paintLetterPaperAsset, paintPaperBackground } from './letter-painter';
 
 const INK = '#495853';
 const LETTER_RATIO = 491 / 733;
@@ -20,6 +21,11 @@ export function pageBackRect(safe: SafeAreaInsets): Rect {
 export function computePageItemRects(width: number, safe: SafeAreaInsets, count: number): Rect[] {
   const left = safe.left + 24; const itemWidth = width - safe.left - safe.right - 48;
   return Array.from({ length: count }, (_, index) => ({ left, top: safe.top + 92 + index * 58, width: itemWidth, height: 50 }));
+}
+
+export function computeFontPackageItemRects(width: number, safe: SafeAreaInsets, count: number): Rect[] {
+  const left = safe.left + 24; const itemWidth = width - safe.left - safe.right - 48;
+  return Array.from({ length: count }, (_, index) => ({ left, top: safe.top + 92 + index * 84, width: itemWidth, height: 72 }));
 }
 
 function title(context: CanvasRenderingContext2D, label: string, width: number, safe: SafeAreaInsets): void {
@@ -62,9 +68,7 @@ function paintJournal(
     const artArea = { ...cell.rect, height: cell.rect.height - 23 };
     context.save(); context.shadowColor = 'rgba(64,49,38,.14)'; context.shadowBlur = 8; context.shadowOffsetY = 3;
     const paperRect = containLetter(artArea, 2);
-    paintLetterPaperAsset(context, paperRect, letterPaper, paperAppearanceId);
-    const inset = Math.max(3, paperRect.width * 0.05);
-    paintPatternArt(context, { left: paperRect.left + inset, top: paperRect.top + inset, width: paperRect.width - inset * 2, height: paperRect.height - inset * 2 }, patternById(entry.patternId), false); context.restore();
+    paintLetterPaperAsset(context, paperRect, letterPaper, paperAppearanceId); context.restore();
     context.fillStyle = INK; context.globalAlpha = 0.7; context.font = "11px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center'; context.fillText(entry.createdAtIso.slice(0, 10), cell.rect.left + cell.rect.width / 2, cell.rect.top + cell.rect.height - 7); context.globalAlpha = 1;
   }
   context.fillStyle = INK; context.globalAlpha = 0.56; context.textAlign = 'center'; context.font = "12px ui-rounded,'PingFang SC',sans-serif"; context.fillText(COPY.localOnly, width / 2, layout.noteY); context.globalAlpha = 1;
@@ -75,8 +79,6 @@ function paintJournal(
     const paperArea = { left: detail.left + 22, top: detail.top + 18, width: detail.width - 44, height: Math.min(260, detail.height * 0.64) };
     const paperRect = containLetter(paperArea, 0);
     paintLetterPaperAsset(context, paperRect, letterPaper, paperAppearanceId);
-    const inset = Math.max(6, paperRect.width * 0.05);
-    paintPatternArt(context, { left: paperRect.left + inset, top: paperRect.top + inset, width: paperRect.width - inset * 2, height: paperRect.height - inset * 2 }, patternById(entry.patternId), false);
     const textTop = paperArea.top + paperArea.height + 14;
     context.fillStyle = INK; context.textAlign = 'left'; context.globalAlpha = 0.7; context.font = "13px ui-rounded,'PingFang SC',sans-serif"; context.fillText(entry.createdAtIso.slice(0, 10), detail.left + 24, textTop);
     if (entry.text) { context.globalAlpha = 0.92; context.font = "16px ui-rounded,'PingFang SC',sans-serif"; context.fillText(entry.text, detail.left + 24, textTop + 34, detail.width - 48); }
@@ -87,14 +89,19 @@ function paintJournal(
 export interface GalleryLayout { cells: Array<{ patternIndex: number; rect: Rect }>; maximumScroll: number }
 
 export function computeGalleryLayout(width: number, height: number, safe: SafeAreaInsets, scroll: number): GalleryLayout {
-  const columns = 3; const gap = 10; const padding = 20; const contentTop = safe.top + 82;
-  const cellWidth = (width - padding * 2 - gap * 2) / columns; const cellHeight = cellWidth * 1.34; const rowHeight = cellHeight + 14;
-  const rows = Math.ceil(POSTCARD_PATTERNS.length / columns); const viewportBottom = height - safe.bottom - 16;
+  const contentTop = safe.top + 96; const viewportBottom = height - safe.bottom - 20;
+  const single = POSTCARD_CATALOG.length === 1;
+  const columns = single ? 1 : 2; const gap = 18; const padding = single ? 36 : 24;
+  const cellWidth = single ? Math.min(230, width - padding * 2) : (width - padding * 2 - gap) / columns;
+  const cellHeight = cellWidth * 733 / 491; const rowHeight = cellHeight + 20;
+  const rows = Math.ceil(POSTCARD_CATALOG.length / columns);
   const maximumScroll = Math.max(0, rows * rowHeight - (viewportBottom - contentTop));
-  const cells = POSTCARD_PATTERNS.map((_pattern, patternIndex) => ({
-    patternIndex,
-    rect: { left: padding + (patternIndex % columns) * (cellWidth + gap), top: contentTop + Math.floor(patternIndex / columns) * rowHeight - scroll, width: cellWidth, height: cellHeight },
-  })).filter((cell) => cell.rect.top + cell.rect.height >= contentTop && cell.rect.top <= viewportBottom);
+  const cells = POSTCARD_CATALOG.map((_item, patternIndex) => {
+    const column = patternIndex % columns;
+    const row = Math.floor(patternIndex / columns);
+    const left = single ? (width - cellWidth) / 2 : padding + column * (cellWidth + gap);
+    return { patternIndex, rect: { left, top: contentTop + row * rowHeight - Math.min(scroll, maximumScroll), width: cellWidth, height: cellHeight } };
+  }).filter((cell) => cell.rect.top + cell.rect.height >= contentTop && cell.rect.top <= viewportBottom);
   return { cells, maximumScroll };
 }
 
@@ -110,18 +117,45 @@ function paintGallery(
   title(context, COPY.gallery, width, safe); const layout = computeGalleryLayout(width, height, safe, scroll);
   context.save(); context.beginPath(); context.rect(0, safe.top + 72, width, height - safe.top - safe.bottom - 72); context.clip();
   for (const cell of layout.cells) {
-    const pattern = POSTCARD_PATTERNS[cell.patternIndex]; const rect = cell.rect;
-    const collected = state.collectedPatternIds.includes(pattern.id);
+    const item = POSTCARD_CATALOG[cell.patternIndex]; const rect = cell.rect;
+    const collected = state.collectedPatternIds.includes(item.id);
     context.save(); context.globalAlpha = collected ? 1 : 0.24;
     paintLetterPaperAsset(context, rect, letterPaper, state.activePaperAppearanceId);
-    if (collected) {
-      const inset = Math.max(4, rect.width * 0.05);
-      paintPatternArt(context, { left: rect.left + inset, top: rect.top + inset, width: rect.width - inset * 2, height: rect.height - inset * 2 }, pattern, false);
-    }
     context.restore();
-    if (!collected) { context.strokeStyle = 'rgba(73,88,83,.25)'; context.setLineDash([4, 5]); context.strokeRect(rect.left, rect.top, rect.width, rect.height); context.setLineDash([]); }
   }
   context.restore();
+}
+
+function paintFontPackages(
+  context: CanvasRenderingContext2D,
+  width: number,
+  safe: SafeAreaInsets,
+  activeFontPackageId: string,
+  letterPaper?: CanvasImageSource | null,
+): void {
+  title(context, COPY.fontPackages, width, safe);
+  const rects = computeFontPackageItemRects(width, safe, FONT_PACKAGES.length);
+  FONT_PACKAGES.forEach((fontPackage, index) => {
+    const row = rects[index];
+    const selected = fontPackage.id === activeFontPackageId;
+    const previewRect = containLetter({ left: row.left, top: row.top, width: 58, height: 72 }, 0);
+    context.save();
+    context.globalAlpha = selected ? 1 : 0.84;
+    paintLetterPaperAsset(context, previewRect, letterPaper, 'paper-plain');
+    context.restore();
+    const packageCopy = FONT_PACKAGE_COPY[fontPackage.copyKey];
+    context.fillStyle = INK; context.globalAlpha = selected ? 1 : 0.78; context.textAlign = 'left';
+    context.font = "15px ui-rounded,'PingFang SC',sans-serif";
+    context.fillText(`${packageCopy.name}${selected ? COPY.fontPackageSelectedSuffix : ''}`, row.left + 72, row.top + 17);
+    context.globalAlpha = 0.62; context.font = "12px ui-rounded,'PingFang SC',sans-serif";
+    context.fillText(packageCopy.description, row.left + 72, row.top + 37);
+    context.globalAlpha = selected ? 0.92 : 0.72; context.fillStyle = INK; context.font = `15px ${fontStackForPackage(fontPackage.id)}`;
+    context.fillText(packageCopy.preview, row.left + 72, row.top + 59, row.width - 76);
+    context.globalAlpha = 0.62; context.font = `12px ${fontStackForPackage(fontPackage.id)}`;
+    context.fillText(fontPackage.previewEnglish, row.left + 72, row.top + 72, row.width - 76);
+    if (selected) { context.globalAlpha = 0.7; context.strokeStyle = '#8B7563'; context.lineWidth = 2; context.beginPath(); context.moveTo(row.left + 72, row.top + row.height - 2); context.lineTo(row.left + row.width, row.top + row.height - 2); context.stroke(); }
+    context.globalAlpha = 1;
+  });
 }
 
 export interface AppOverlayPaintOptions {
@@ -137,6 +171,7 @@ export function paintAppOverlay(context: CanvasRenderingContext2D, options: AppO
   paintPaperBackground(context, width, height, options.background, options.backgroundComposed);
   if (page === 'journal') { paintJournal(context, width, height, safeArea, state.journalEntries, options.journalScroll, options.selectedEntryIndex, options.letterPaper, state.activePaperAppearanceId); return; }
   if (page === 'gallery') { paintGallery(context, width, height, safeArea, state, options.galleryScroll, options.letterPaper); return; }
+  if (page === 'font-packages') { paintFontPackages(context, width, safeArea, state.activeFontPackageId, options.letterPaper); return; }
   if (page === 'mileage') {
     title(context, COPY.mileage, width, safeArea); context.fillStyle = INK; context.textAlign = 'center'; context.font = "64px ui-rounded,'PingFang SC',sans-serif"; context.fillText(String(state.postcardMileage), width / 2, height * 0.46); context.font = "15px ui-rounded,'PingFang SC',sans-serif"; context.globalAlpha = 0.65; context.fillText(COPY.mileageCompleted, width / 2, height * 0.54); context.globalAlpha = 1; return;
   }

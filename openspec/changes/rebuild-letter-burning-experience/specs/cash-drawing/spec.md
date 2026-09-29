@@ -25,8 +25,8 @@
 **Migration**: 集体统计只在规定燃烧次数后浮出；个人累计改为菜单内的本机明信片里程表。
 
 ### Requirement: 面额体系
-**Reason**: 虚构货币被本地预置明信片图案替代。
-**Migration**: 使用 `letter-burning` 的治愈图案分配规则。
+**Reason**: 虚构货币被随包真实明信片资产替代。
+**Migration**: 使用 `letter-burning` 的真实明信片资产目录与选择规则。
 
 ### Requirement: 里程碑反馈
 **Reason**: 抽钞张数、捆扎和金额里程碑与燃信产品无关。

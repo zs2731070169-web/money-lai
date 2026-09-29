@@ -1,4 +1,5 @@
 import { createWebPlatformAdapter } from './adapters/web';
+import { loadLetterHandwritingFont } from './adapters/font-loader';
 import { Game } from './core/game';
 
 /**
@@ -10,11 +11,14 @@ const game = new Game({
   platformAdapter,
   privacyPolicyUrl: import.meta.env.VITE_PRIVACY_POLICY_URL?.trim() || null,
   letterSceneAssetUrls: {
-    background: new URL('../assets/envelop/background.png', import.meta.url).href,
-    closedEnvelope: new URL('../assets/envelop/closed_envelope.png', import.meta.url).href,
-    openEnvelope: new URL('../assets/envelop/open_envelope.png', import.meta.url).href,
-    letterPaper: new URL('../assets/envelop/letter_paper.png', import.meta.url).href,
+    background: new URL('../assets/envelop/topic1/background.png', import.meta.url).href,
+    closedEnvelope: new URL('../assets/envelop/topic1/closed_envelope.png', import.meta.url).href,
+    openEnvelopeBack: new URL('../assets/envelop/topic1/open_envelope_back.png', import.meta.url).href,
+    openEnvelopeFront: new URL('../assets/envelop/topic1/open_envelope_front.png', import.meta.url).href,
+    letterPaper: new URL('../assets/envelop/topic1/letter_paper.png', import.meta.url).href,
   },
 });
-void game.start();
-
+void (async () => {
+  await loadLetterHandwritingFont();
+  await game.start();
+})();

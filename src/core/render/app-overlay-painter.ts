@@ -95,8 +95,8 @@ function paintJournal(
     context.fillStyle = INK; context.globalAlpha = 0.7; context.font = "11px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center'; context.fillText(entry.createdAtIso.slice(0, 10), cell.rect.left + cell.rect.width / 2, cell.rect.top + cell.rect.height - 7); context.globalAlpha = 1;
   }
   context.restore();
-  // 页眉带右上：清空整本手帐入口（右对齐与左上返回镜像，滚动全程不被网格遮挡；命中盒见 journalClearRect）
-  context.fillStyle = INK; context.globalAlpha = entries.length > 0 ? 0.85 : 0.3; context.font = "18px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'right';
+  // 页眉带右上：清空整本手帐入口（与左上返回同色同字号；空手帐置灰；命中盒见 journalClearRect）
+  context.fillStyle = INK; context.globalAlpha = entries.length > 0 ? 1 : 0.3; context.font = "20px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'right';
   context.fillText(COPY.clearJournal, width - safe.right - 19, safe.top + 38); context.textAlign = 'center'; context.globalAlpha = 1;
   if (selectedEntryIndex !== null && entries[selectedEntryIndex]) {
     // 点开后放大整封信纸：文字用与书写态相同的换行/字体/混合排版，原格式清楚可读

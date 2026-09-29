@@ -30,6 +30,8 @@ const REDUCED_MENU_PANEL_SLIDE_MS = 80;
 const CLEAR_JOURNAL_DURATION_MS = 2700;
 /** 清空渐隐满幅落库后的奶油层淡出时长：与渐隐同色系收尾，避免硬切。 */
 const CLEAR_JOURNAL_REVEAL_MS = 260;
+/** 渐隐满幅后等待落库结果的兜底上限：桥接回调悬挂时按未确认成功解困，不让奶油层与输入永久钉死。 */
+const CLEAR_JOURNAL_WRITE_TIMEOUT_MS = 1200;
 /** 视口尺寸稳定等待时长：resize/软键盘动画期间沿用旧合成面过渡。 */
 const BACKGROUND_COMPOSITION_SETTLE_MS = 180;
 
@@ -104,6 +106,8 @@ export class Game {
   private clearJournalElapsedMs: number | null = null;
   /** 渐隐满幅后的落库是否已发起（保持期防重复写库）。 */
   private clearJournalWriteStarted = false;
+  /** 渐隐满幅后落库发起的时刻：供悬挂兜底计时。 */
+  private clearJournalWriteStartedAtMs = 0;
   /** 落库落定后奶油层淡出的起点；null 表示无收尾。 */
   private clearJournalRevealAtMs: number | null = null;
   private notice: { text: string; until: number } | null = null;
@@ -410,6 +414,28 @@ export class Game {
   }
 
   private frame(timestamp: number): void {
+    // 帧内异常不得断链 rAF：捕获后仍补请求下一帧——卡一帧好过画面永久冻结
+    try {
+      this.advanceFrame(timestamp);
+    } catch (error) {
+      console.error('[letter-burning] frame error', error);
+      this.platform.requestFrame((nextTimestamp) => this.frame(nextTimestamp));
+    }
+  }
+
+  /** 落库结果落定（成功/失败/超时兜底）统一收尾：换血或提示，随后进入奶油层淡出。 */
+  private settleClearJournalWrite(saved: boolean, next: LetterBurningPersistedState | null): void {
+    if (this.clearJournalElapsedMs === null) {
+      // 收尾已开始（超时兜底先行）：晚到的成功仅补换血，不重复收尾
+      if (saved && next) { this.persisted = next; this.journalScroll = 0; this.selectedJournalEntry = null; }
+      return;
+    }
+    if (saved && next) { this.persisted = next; this.journalScroll = 0; this.selectedJournalEntry = null; }
+    else if (!saved) this.showNotice(COPY.saveFailed);
+    this.clearJournalElapsedMs = null; this.clearJournalWriteStarted = false; this.clearJournalRevealAtMs = this.platform.nowMilliseconds();
+  }
+
+  private advanceFrame(timestamp: number): void {
     const delta = this.lastFrameTimestamp === null ? 0 : Math.max(0, timestamp - this.lastFrameTimestamp); this.lastFrameTimestamp = timestamp;
     const transitionDurationMs = this.reducedMotion ? REDUCED_TRANSITION_DURATION_MS : TRANSITION_DURATION_MS;
     if (this.transitionElapsedMs !== null) { this.transitionElapsedMs += Math.min(delta, 100); if (this.transitionElapsedMs >= transitionDurationMs) { this.transitionElapsedMs = null; this.page = 'journal'; } }
@@ -422,12 +448,13 @@ export class Game {
       // 渐隐满幅后钉在终点保持：奶油层不提前撤下，等落库落定再淡出，杜绝旧网格（含右上入口）整帧回闪
       this.clearJournalElapsedMs = Math.min(CLEAR_JOURNAL_DURATION_MS, this.clearJournalElapsedMs + Math.min(delta, 100));
       if (this.clearJournalElapsedMs >= CLEAR_JOURNAL_DURATION_MS && !this.clearJournalWriteStarted) {
-        this.clearJournalWriteStarted = true;
+        this.clearJournalWriteStarted = true; this.clearJournalWriteStartedAtMs = this.platform.nowMilliseconds();
         const next = clearJournal(this.persisted);
-        void this.platform.writePersistentValue(LETTER_BURNING_STORAGE_KEY, serializeLetterLetterState(next)).then((saved) => {
-          if (saved) { this.persisted = next; this.journalScroll = 0; this.selectedJournalEntry = null; } else this.showNotice(COPY.saveFailed);
-          this.clearJournalElapsedMs = null; this.clearJournalWriteStarted = false; this.clearJournalRevealAtMs = this.platform.nowMilliseconds();
-        });
+        void this.platform.writePersistentValue(LETTER_BURNING_STORAGE_KEY, serializeLetterLetterState(next)).then((saved) => this.settleClearJournalWrite(saved, next));
+      }
+      // 落库回调悬挂兜底：越上限按未确认成功解困，晚到的成功仍会补换血
+      if (this.clearJournalWriteStarted && this.platform.nowMilliseconds() - this.clearJournalWriteStartedAtMs >= CLEAR_JOURNAL_WRITE_TIMEOUT_MS) {
+        this.settleClearJournalWrite(false, null);
       }
     }
     if (this.clearJournalRevealAtMs !== null && this.platform.nowMilliseconds() - this.clearJournalRevealAtMs >= CLEAR_JOURNAL_REVEAL_MS) this.clearJournalRevealAtMs = null;

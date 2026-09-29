@@ -15,14 +15,20 @@ describe('燃信场景布局', () => {
       expect(layout.menuRect.top).toBeGreaterThanOrEqual(device.safe.top);
       expect(layout.systemGestureBoundaryY).toBeLessThan(device.height - device.safe.bottom);
     });
-    it(`${device.name} 信纸保持素材竖版比例且不与信封重叠`, () => {
+    it(`${device.name} 信纸保持素材竖版比例，并以自然半页高度对折插入信封`, () => {
       const layout = computeLetterSceneLayout(device.width, device.height, device.safe);
       expect(layout.cardRect.height / layout.cardRect.width).toBeCloseTo(733 / 491, 2);
       expect(layout.cardRect.top + layout.cardRect.height).toBeLessThanOrEqual(layout.envelopeRect.top - 24);
-      // 露出缘是对折信纸的上半段，宽度与信纸一致
-      expect(layout.exposedCardRect.width).toBe(layout.cardRect.width);
-      expect(layout.exposedCardRect.height).toBeLessThanOrEqual(layout.cardRect.height / 2);
+      expect(layout.foldedCardRect.width).toBe(layout.cardRect.width);
+      expect(layout.foldedCardRect.height).toBeCloseTo(layout.cardRect.height / 2, 5);
+      expect(layout.foldedCardRect.left).toBe(layout.cardRect.left);
+      expect(layout.foldedCardRect.top).toBeGreaterThan(layout.cardRect.top);
+      expect(layout.foldedCardRect.top + layout.foldedCardRect.height)
+        .toBeLessThanOrEqual(layout.envelopeRect.top + layout.envelopeRect.height);
+      expect(layout.exposedCardRect.left).toBe(layout.foldedCardRect.left);
+      expect(layout.exposedCardRect.top).toBe(layout.foldedCardRect.top);
+      expect(layout.exposedCardRect.height).toBeCloseTo(layout.foldedCardRect.height * 0.38, 5);
+      expect(layout.exposedCardRect.height).toBeGreaterThan(40);
     });
   }
 });
-

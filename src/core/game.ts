@@ -233,7 +233,7 @@ export class Game {
   private async exportJournal(): Promise<void> {
     const plan = computeJournalExportPlan(this.persisted.journalEntries.length); const surface = this.platform.createOffscreenCanvas(plan.width, plan.height);
     if (!surface) { this.showNotice(COPY.exportFailed); return; }
-    paintJournalExport(surface.renderingContext, this.persisted.journalEntries, plan);
+    paintJournalExport(surface.renderingContext, this.persisted.journalEntries, plan, this.letterSceneAssets.letterPaper, this.persisted.activePaperAppearanceId);
     const base64Data = await this.platform.encodePng(surface);
     if (!base64Data) { this.showNotice(COPY.exportFailed); return; }
     const result = await this.platform.shareTemporaryPng({ fileName: `${COPY.exportFilePrefix}-${new Date().toISOString().slice(0, 10)}.png`, base64Data, title: COPY.journal });
@@ -349,7 +349,7 @@ export class Game {
     const glowProgress = this.menuGlowStartedAt === null ? 0 : Math.min(1, (this.platform.nowMilliseconds() - this.menuGlowStartedAt) / 800);
     if (glowProgress >= 1) this.menuGlowStartedAt = null;
     paintLetterScene(context, { width: viewport.width, height: viewport.height, layout, state: this.burning, patternId: this.patternId, prompt: this.prompt, envelopeAppearanceId: this.persisted.activeEnvelopeAppearanceId, paperAppearanceId: this.persisted.activePaperAppearanceId, burnGeometry: this.burnGeometry, burnSeed: patternById(this.patternId).seed + this.persisted.postcardMileage, menuGlowProgress: glowProgress, assets: this.letterSceneAssets });
-    if (this.page !== 'main') paintAppOverlay(context, { width: viewport.width, height: viewport.height, safeArea: safe, page: this.page, state: this.persisted, journalScroll: this.journalScroll, galleryScroll: this.galleryScroll, selectedEntryIndex: this.selectedJournalEntry });
+    if (this.page !== 'main') paintAppOverlay(context, { width: viewport.width, height: viewport.height, safeArea: safe, page: this.page, state: this.persisted, journalScroll: this.journalScroll, galleryScroll: this.galleryScroll, selectedEntryIndex: this.selectedJournalEntry, background: this.letterSceneAssets.background, backgroundComposed: this.letterSceneAssets.backgroundComposed, openEnvelope: this.letterSceneAssets.openEnvelope, letterPaper: this.letterSceneAssets.letterPaper });
     if (this.transitionElapsedMs !== null) { const durationMs = this.reducedMotion ? REDUCED_TRANSITION_DURATION_MS : TRANSITION_DURATION_MS; const ratio = Math.min(1, this.transitionElapsedMs / durationMs); context.fillStyle = `rgba(78,61,49,${0.38 * Math.sin(ratio * Math.PI)})`; context.fillRect(0, 0, viewport.width, viewport.height); }
     if (this.clearJournalElapsedMs !== null) paintPageBurn(context, viewport.width, viewport.height, Math.min(1, this.clearJournalElapsedMs / BURN_DURATION_MS), this.clearBurnGeometry, 104729);
     if (this.notice && this.notice.until > this.platform.nowMilliseconds()) { context.save(); context.fillStyle = 'rgba(73,88,83,.82)'; context.font = "13px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center'; context.fillText(this.notice.text, viewport.width / 2, viewport.height - safe.bottom - 34); context.restore(); } else if (this.notice) this.notice = null;

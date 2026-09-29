@@ -9,4 +9,3 @@ describe('独立明信片图鉴', () => {
     expect(state.collectedPatternIds).toEqual([POSTCARD_PATTERNS[7].id]);
   });
 });
-

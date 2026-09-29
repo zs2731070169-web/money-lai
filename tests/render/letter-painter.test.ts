@@ -26,59 +26,6 @@ function recordingContext() {
   return { context, strokes, clippedPaths };
 }
 
-interface RecordedGradient {
-  kind: 'linear' | 'radial';
-  stops: string[];
-  addColorStop(offset: number, color: string): void;
-}
-
-function materialRecordingContext() {
-  const calls: string[] = [];
-  let path: string[] = [];
-  let fillStyle: string | CanvasGradient | CanvasPattern = '';
-  let strokeStyle: string | CanvasGradient | CanvasPattern = '';
-  let globalAlpha = 1;
-  const number = (value: number) => value.toFixed(2);
-  const styleKey = (style: string | CanvasGradient | CanvasPattern) => {
-    if (typeof style === 'string') return style;
-    const gradient = style as unknown as RecordedGradient;
-    return `${gradient.kind}(${gradient.stops.join(',')})`;
-  };
-  const gradient = (kind: RecordedGradient['kind']): RecordedGradient => ({
-    kind,
-    stops: [],
-    addColorStop(offset: number, color: string) { this.stops.push(`${offset}:${color}`); },
-  });
-  const context = new Proxy({}, {
-    get(_target, property) {
-      if (property === 'fillStyle') return fillStyle;
-      if (property === 'strokeStyle') return strokeStyle;
-      if (property === 'globalAlpha') return globalAlpha;
-      if (property === 'createLinearGradient') return () => gradient('linear');
-      if (property === 'createRadialGradient') return () => gradient('radial');
-      if (property === 'beginPath') return () => { path = []; };
-      if (property === 'moveTo' || property === 'lineTo') return (x: number, y: number) => path.push(`${String(property)}:${number(x)},${number(y)}`);
-      if (property === 'quadraticCurveTo') return (...values: number[]) => path.push(`quadratic:${values.map(number).join(',')}`);
-      if (property === 'bezierCurveTo') return (...values: number[]) => path.push(`bezier:${values.map(number).join(',')}`);
-      if (property === 'arc' || property === 'ellipse') return (...values: number[]) => path.push(`${String(property)}:${values.map(number).join(',')}`);
-      if (property === 'closePath') return () => path.push('close');
-      if (property === 'fill') return () => calls.push(`fill:${styleKey(fillStyle)}:${number(globalAlpha)}:${path.join('|')}`);
-      if (property === 'stroke') return () => calls.push(`stroke:${styleKey(strokeStyle)}:${number(globalAlpha)}:${path.join('|')}`);
-      if (property === 'fillRect') return (x: number, y: number, width: number, height: number) => calls.push(`fillRect:${styleKey(fillStyle)}:${number(globalAlpha)}:${[x, y, width, height].map(number).join(',')}`);
-      if (property === 'strokeRect') return (x: number, y: number, width: number, height: number) => calls.push(`strokeRect:${styleKey(strokeStyle)}:${number(globalAlpha)}:${[x, y, width, height].map(number).join(',')}`);
-      if (property === 'measureText') return (text: string) => ({ width: text.length * 10 });
-      return () => undefined;
-    },
-    set(_target, property, value) {
-      if (property === 'fillStyle') fillStyle = value as typeof fillStyle;
-      if (property === 'strokeStyle') strokeStyle = value as typeof strokeStyle;
-      if (property === 'globalAlpha') globalAlpha = value as number;
-      return true;
-    },
-  }) as unknown as CanvasRenderingContext2D;
-  return { context, calls };
-}
-
 function imageRecordingContext() {
   const draws: Array<{ id: string; args: number[] }> = [];
   const gradients = { addColorStop() {} };
@@ -95,13 +42,17 @@ function imageRecordingContext() {
 }
 
 describe('燃信画师', () => {
+  const visualOptions = {
+    patternId: 'postcard-01', envelopeAppearanceId: 'envelope-kraft', paperAppearanceId: 'paper-plain',
+  } as const;
+
   it('燃烧边界只使用规定外焰与内焰色', () => {
     const recording = recordingContext();
     const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
     paintLetterScene(recording.context, {
       width: 402, height: 874, layout, state: { ...createBurningState(), phase: 'burn', elapsedMs: 1350 },
-      patternId: 'postcard-01', prompt: '想说的是……', envelopeAppearanceId: 'envelope-kraft', paperAppearanceId: 'paper-plain',
-      burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+      prompt: '想说的是……',
+      ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
     });
     expect(recording.strokes).toContain(OUTER_FLAME_COLOR);
     expect(recording.strokes).toContain(INNER_FLAME_COLOR);
@@ -112,8 +63,8 @@ describe('燃信画师', () => {
     const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
     paintLetterScene(recording.context, {
       width: 402, height: 874, layout, state: { ...createBurningState(), phase: 'burn', elapsedMs: 1350 },
-      patternId: 'postcard-01', prompt: '想说的是……', envelopeAppearanceId: 'envelope-kraft', paperAppearanceId: 'paper-plain',
-      burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+      prompt: '想说的是……',
+      ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
     });
     const bottom = layout.burnCardRect.top + layout.burnCardRect.height;
     const mask = recording.clippedPaths.find((path) => path[0]?.[1] === bottom && path[1]?.[1] === bottom);
@@ -125,41 +76,14 @@ describe('燃信画师', () => {
     expect(mask.at(-1)?.[0]).toBeCloseTo(layout.burnCardRect.left);
   });
 
-  it('信封以稳定且有限的实体纸材命令包住露出的明信片', () => {
-    const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
-    const paint = () => {
-      const recording = materialRecordingContext();
-      paintLetterScene(recording.context, {
-        width: 402, height: 874, layout, state: createBurningState(),
-        patternId: 'postcard-01', prompt: '想说的是……', envelopeAppearanceId: 'envelope-kraft', paperAppearanceId: 'paper-plain',
-        burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
-      });
-      return recording.calls;
-    };
-
-    const firstFrame = paint();
-    const secondFrame = paint();
-    expect(secondFrame).toEqual(firstFrame);
-    expect(firstFrame.length).toBeGreaterThan(45);
-    expect(firstFrame.length).toBeLessThan(240);
-
-    const cardIndex = firstFrame.findIndex((call) => call.startsWith('fill:#EEE0CF'));
-    expect(cardIndex).toBeGreaterThan(0);
-    expect(firstFrame.slice(0, cardIndex).some((call) => call.includes('#C9A785'))).toBe(true);
-    expect(firstFrame.slice(cardIndex + 1).some((call) => call.includes('#C9A785'))).toBe(true);
-
-    const fullWidthRules = firstFrame.filter((call) => /stroke:.*moveTo:0\.00,([\d.]+)\|lineTo:402\.00,\1/.test(call));
-    expect(fullWidthRules).toHaveLength(0);
-  });
-
   it('本地位图按背景、信封后层、信纸、信封前袋的顺序绘制', () => {
     const recording = imageRecordingContext();
     const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
     const asset = (id: string) => ({ id }) as unknown as CanvasImageSource;
     paintLetterScene(recording.context, {
       width: 402, height: 874, layout, state: createBurningState(),
-      patternId: 'postcard-01', prompt: '想说的是……', envelopeAppearanceId: 'envelope-kraft', paperAppearanceId: 'paper-plain',
-      burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+      prompt: '想说的是……',
+      ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
       assets: {
         background: asset('background'), closedEnvelope: asset('closed'),
         openEnvelope: asset('open'), letterPaper: asset('paper'),
@@ -168,6 +92,53 @@ describe('燃信画师', () => {
 
     expect(recording.draws.map((draw) => draw.id)).toEqual(['background', 'open', 'paper', 'open']);
     expect(recording.draws[1].args).toEqual(recording.draws[3].args);
+    expect(recording.draws[2].args.slice(0, 4)).toEqual([13, 15, 491, 733 / 2]);
+    expect(recording.draws[2].args.slice(4)).toEqual([
+      layout.foldedCardRect.left, layout.foldedCardRect.top,
+      layout.foldedCardRect.width, layout.foldedCardRect.height,
+    ]);
+  });
+
+  it('静置与跟手保持同一张自然半页折纸，松手后才连续展开下半页', () => {
+    const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
+    const asset = (id: string) => ({ id }) as unknown as CanvasImageSource;
+    const paintPaper = (state: ReturnType<typeof createBurningState>) => {
+      const recording = imageRecordingContext();
+      paintLetterScene(recording.context, {
+        width: 402, height: 874, layout, state, prompt: '想说的是……',
+        ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+        assets: { background: asset('background'), openEnvelope: asset('open'), letterPaper: asset('paper') },
+      });
+      return recording.draws.filter((draw) => draw.id === 'paper');
+    };
+    const idle = paintPaper(createBurningState());
+    const draw = paintPaper({ ...createBurningState(), phase: 'draw', offsetY: -36 });
+    const extracting = paintPaper({ ...createBurningState(), phase: 'unfold', offsetY: -72, elapsedMs: 100 });
+    const settling = paintPaper({ ...createBurningState(), phase: 'unfold', offsetY: -72, elapsedMs: 225 });
+    expect(idle).toHaveLength(1); expect(draw).toHaveLength(1); expect(extracting).toHaveLength(1); expect(settling).toHaveLength(2);
+    for (const call of [idle[0], draw[0], extracting[0], settling[0]]) expect(call.args.slice(0, 4)).toEqual([13, 15, 491, 733 / 2]);
+    expect(draw[0].args.slice(6)).toEqual([layout.foldedCardRect.width, layout.foldedCardRect.height]);
+    expect(draw[0].args[5]).toBe(layout.foldedCardRect.top - 36);
+    expect(extracting[0].args[5]).toBeLessThan(layout.foldedCardRect.top - 72);
+    expect(extracting[0].args[5]).toBeGreaterThan(layout.cardRect.top);
+    expect(settling[0].args[5]).toBe(layout.cardRect.top);
+    expect(settling[1].args.slice(0, 4)).toEqual([13, 15 + 733 / 2, 491, 733 / 2]);
+    expect(settling[1].args[7]).toBeGreaterThan(0);
+    expect(settling[1].args[7]).toBeLessThan(layout.cardRect.height / 2);
+  });
+
+  it('展开结束后的正面恢复完整竖版信纸采样与尺寸', () => {
+    const recording = imageRecordingContext();
+    const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
+    const asset = (id: string) => ({ id }) as unknown as CanvasImageSource;
+    paintLetterScene(recording.context, {
+      width: 402, height: 874, layout, state: { ...createBurningState(), phase: 'front' }, prompt: '想说的是……',
+      ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+      assets: { openEnvelope: asset('open'), letterPaper: asset('paper') },
+    });
+    const paper = recording.draws.find((draw) => draw.id === 'paper');
+    expect(paper?.args.slice(0, 4)).toEqual([13, 15, 491, 733]);
+    expect(paper?.args.slice(4)).toEqual([layout.cardRect.left, layout.cardRect.top, layout.cardRect.width, layout.cardRect.height]);
   });
 
   it('已合成背景整幅拉伸绘制且优先于原图 cover 裁切', () => {
@@ -176,8 +147,8 @@ describe('燃信画师', () => {
     const asset = (id: string) => ({ id }) as unknown as CanvasImageSource;
     paintLetterScene(recording.context, {
       width: 402, height: 874, layout, state: createBurningState(),
-      patternId: 'postcard-01', prompt: '想说的是……', envelopeAppearanceId: 'envelope-kraft', paperAppearanceId: 'paper-plain',
-      burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+      prompt: '想说的是……',
+      ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
       assets: {
         background: asset('background'), backgroundComposed: asset('composed'),
         closedEnvelope: asset('closed'), openEnvelope: asset('open'), letterPaper: asset('paper'),

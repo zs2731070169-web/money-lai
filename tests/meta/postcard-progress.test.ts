@@ -15,4 +15,3 @@ describe('明信片本机元进程', () => {
     expect(ids).toEqual(expect.arrayContaining(['first-draw', 'first-burn', 'first-blank', 'patterns-6', 'mileage-10']));
   });
 });
-

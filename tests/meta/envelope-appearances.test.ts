@@ -11,4 +11,3 @@ describe('信封与纸纹双槽', () => {
     expect(activateAppearance(both, 'envelope-night')).toBe(both);
   });
 });
-

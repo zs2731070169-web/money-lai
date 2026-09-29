@@ -3,6 +3,9 @@ import type { SafeAreaInsets } from '../platform';
 export interface Rect { left: number; top: number; width: number; height: number }
 export interface LetterSceneLayout {
   envelopeRect: Rect;
+  /** 横向对折后的整张可交互物；高度恒为完整信纸的一半。 */
+  foldedCardRect: Rect;
+  /** 对折信纸在信封口以上实际露出的区域。 */
   exposedCardRect: Rect;
   cardRect: Rect;
   burnCardRect: Rect;
@@ -48,16 +51,27 @@ export function computeLetterSceneLayout(
   }
   const cardTop = Math.max(cardTopFloor, Math.min(viewportHeight * 0.31, envelopeRect.top - cardHeight - 30));
   const cardRect = { left: (viewportWidth - cardWidth) / 2, top: cardTop, width: cardWidth, height: cardHeight };
-  // 静置时露出信封开口的是对折信纸的上缘
-  const exposedCardRect = {
+  // 信纸沿横向中线对折后装入信封。折叠物保持自然的半页高度，
+  // 其中约 38% 露出开口，其余部分由信封前袋遮挡。
+  const envelopeAssetSize = envelopeRect.width / 0.874;
+  const openingSideY = envelopeRect.top + envelopeRect.height - (0.95 - 0.397) * envelopeAssetSize;
+  const foldedHeight = cardHeight / 2;
+  const foldedCardRect = {
     left: cardRect.left,
-    top: envelopeRect.top - 18,
+    top: openingSideY - foldedHeight * 0.38,
     width: cardWidth,
-    height: Math.min(46, cardHeight / 2),
+    height: foldedHeight,
+  };
+  const exposedCardRect = {
+    left: foldedCardRect.left,
+    top: foldedCardRect.top,
+    width: cardWidth,
+    height: Math.max(0, openingSideY - foldedCardRect.top),
   };
   const burnTop = Math.max(safeTop + 84, Math.min(cardTop, viewportHeight * 0.27));
   return {
     envelopeRect,
+    foldedCardRect,
     exposedCardRect,
     cardRect,
     burnCardRect: { ...cardRect, top: burnTop },

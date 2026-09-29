@@ -47,4 +47,3 @@ export function chooseNextPatternId(
 export function patternById(id: string): PostcardPattern {
   return POSTCARD_PATTERNS.find((pattern) => pattern.id === id) ?? POSTCARD_PATTERNS[0];
 }
-

@@ -29,4 +29,3 @@ describe('燃信本地状态', () => {
     expect(cleared.statCadenceCount).toBe(1);
   });
 });
-

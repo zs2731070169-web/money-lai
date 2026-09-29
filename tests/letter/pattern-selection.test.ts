@@ -13,4 +13,3 @@ describe('明信片图案分配', () => {
     expect(chooseNextPatternId(POSTCARD_PATTERNS.map((pattern) => pattern.id), () => 0.999)).toBe(POSTCARD_PATTERNS[23].id);
   });
 });
-

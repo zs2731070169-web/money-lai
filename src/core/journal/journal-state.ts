@@ -128,4 +128,3 @@ export function activateAppearance(
     ? { ...state, activeEnvelopeAppearanceId: appearanceId }
     : { ...state, activePaperAppearanceId: appearanceId };
 }
-

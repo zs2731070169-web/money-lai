@@ -21,7 +21,7 @@ export function computeJournalLayout(
   const gap = 12;
   const columns = width < 390 ? 2 : 3;
   const cellWidth = (width - horizontalPadding * 2 - gap * (columns - 1)) / columns;
-  const cellHeight = cellWidth * 0.86;
+  const cellHeight = cellWidth * 1.34;
   const headerHeight = 72;
   const contentTop = safeArea.top + headerHeight;
   const rowHeight = cellHeight + gap;

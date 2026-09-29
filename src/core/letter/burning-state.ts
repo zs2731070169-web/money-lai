@@ -16,7 +16,7 @@ export const IGNITION_PREP_MS = 300;
 export const THROW_DISTANCE_RATIO = 0.15;
 export const THROW_SPEED_PX_PER_SECOND = 700;
 export const MAX_FRAME_DELTA_MS = 100;
-export const MAX_LETTER_TEXT_LENGTH = 200;
+export const MAX_LETTER_TEXT_LENGTH = 400;
 
 export type BurningPhase = 'idle' | 'draw' | 'unfold' | 'front' | 'edit' | 'edit-return' | 'back' | 'drag' | 'rebound' | 'burn' | 'fade' | 'silence' | 'stat';
 export type BurningEffect = 'drawn' | 'requestEdit' | 'ignite' | 'save' | 'afterglow' | 'extinguish' | 'reset';

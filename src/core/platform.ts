@@ -14,7 +14,15 @@ export interface OffscreenCanvasSurface {
   pixelWidth: number;
   pixelHeight: number;
 }
-export interface TextInputRequest { initialValue: string; placeholder: string; maxLength: number; fontFamily?: string }
+export interface TextInputMenuPause { kind: 'menu'; draft: string }
+export type TextInputResult = string | null | TextInputMenuPause;
+export interface TextInputRequest {
+  initialValue: string;
+  placeholder: string;
+  maxLength: number;
+  fontFamily?: string;
+  menuRect?: { left: number; top: number; width: number; height: number };
+}
 export interface TemporaryPngShareRequest { fileName: string; base64Data: string; title: string }
 export type ShareResult = 'shared' | 'cancelled' | 'failed';
 
@@ -26,7 +34,7 @@ export interface PlatformAdapter {
   onAudioInterruption(listener: (phase: 'begin' | 'end') => void): void;
   readPersistentValue(key: string): Promise<string | null>;
   writePersistentValue(key: string, value: string): Promise<boolean>;
-  requestMultilineText(request: TextInputRequest): Promise<string | null>;
+  requestMultilineText(request: TextInputRequest): Promise<TextInputResult>;
   requestPrivacyConsent(policyUrl: string | null): Promise<boolean>;
   requestConfirmation(message: string): Promise<boolean>;
   openExternalUrl(url: string): Promise<boolean>;

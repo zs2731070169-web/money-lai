@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createBurningState } from '../../src/core/letter/burning-state';
 import { createBurnGeometryBuffer } from '../../src/core/render/burn-geometry';
 import { computeLetterSceneLayout } from '../../src/core/render/letter-layout';
-import { INNER_FLAME_COLOR, OUTER_FLAME_COLOR, computeExpandedPaperRect, paintLetterScene } from '../../src/core/render/letter-painter';
+import { INNER_FLAME_COLOR, OUTER_FLAME_COLOR, computeExpandedPaperRect, paintLetterScene, paintPaperWriting } from '../../src/core/render/letter-painter';
 
 function recordingContext() {
   const strokes: string[] = [];
@@ -66,6 +66,17 @@ describe('燃信画师', () => {
   const visualOptions = {
     envelopeAppearanceId: 'envelope-kraft', paperAppearanceId: 'paper-plain',
   } as const;
+
+  it('长正文只在信纸书写区绘制可见部分，避免流出纸边', () => {
+    const recording = recordingContext();
+    const rect = { left: 20, top: 30, width: 200, height: 300 };
+    paintPaperWriting(recording.context, rect, '这是一段很长的正文。'.repeat(45), '想说的是……');
+    expect(recording.clippedPaths).toContainEqual([
+      [52, 72], [188, 72], [188, 288], [52, 288],
+    ]);
+    expect(recording.fillTexts.length).toBeGreaterThan(10);
+    expect(Number.parseFloat(recording.fillTexts[0].font)).toBeGreaterThanOrEqual(9);
+  });
 
   it('燃烧边界只使用规定外焰与内焰色', () => {
     const recording = recordingContext();
@@ -252,7 +263,7 @@ describe('燃信画师', () => {
     expect(recording.compositeModes).toContain('multiply');
   });
 
-  it('全屏编辑态只放大同一张原信纸，回缩态从大纸面过渡回卡片', () => {
+  it('全屏编辑态只放大同一张原信纸，回缩态先恢复后层再显现前袋', () => {
     const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
     const asset = (id: string) => ({ id }) as unknown as CanvasImageSource;
     const expanded = computeExpandedPaperRect(layout);
@@ -271,7 +282,9 @@ describe('燃信画师', () => {
     const editingDraws = paint('edit', 320);
     expect(editingDraws.map((draw) => draw.id)).toEqual(['background', 'paper']);
     expect(editingDraws[1].args.slice(4)).toEqual([expanded.left, expanded.top, expanded.width, expanded.height]);
-    const returningDraws = paint('edit-return', 160);
+    const earlyReturningDraws = paint('edit-return', 80);
+    expect(earlyReturningDraws.map((draw) => draw.id)).toEqual(['background', 'back', 'paper']);
+    const returningDraws = paint('edit-return', 280);
     expect(returningDraws.map((draw) => draw.id)).toEqual(['background', 'back', 'paper', 'front']);
     expect(returningDraws[2].args[6]).toBeGreaterThan(layout.cardRect.width);
     expect(returningDraws[2].args[6]).toBeLessThan(expanded.width);

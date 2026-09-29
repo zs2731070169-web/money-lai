@@ -23,4 +23,3 @@ void (async () => {
   await loadLetterHandwritingFont();
   await game.start();
 })();
-

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { Game } from '../../src/core/game';
+import { Game, shouldTriggerEnvelopeDrawOut } from '../../src/core/game';
+import { beginDraw, createBurningState, movePointer } from '../../src/core/letter/burning-state';
 import { LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, createEmptyLetterBurningState, serializeLetterBurningState, settleCompletedPostcard, type LetterBurningPersistedState } from '../../src/core/journal/journal-state';
 import { computeLetterSceneLayout, containsPoint } from '../../src/core/render/letter-layout';
 import { FakePlatform } from '../helpers/fake-platform';
@@ -32,7 +33,40 @@ function drawAndFlip(platform: FakePlatform, layout: ReturnType<typeof computeLe
   advancePastUnfold(platform);
 }
 
+/** 挂起多行输入并在主画布上记录 fillText，用于断言输入期间/之后的信纸文字渲染。 */
+class HeldInputPlatform extends FakePlatform {
+  readonly paintedTexts: string[] = [];
+  private settleDraftPromise: ((value: string | null) => void) | null = null;
+  async requestMultilineText(): Promise<string | null> {
+    return new Promise((resolve) => { this.settleDraftPromise = resolve; });
+  }
+  settleDraft(value: string | null): void { this.settleDraftPromise?.(value); this.settleDraftPromise = null; }
+  createPrimaryCanvas() {
+    const gradient = { addColorStop() {} };
+    const canvasShell = { width: this.primaryCanvasShell.width };
+    const paintedTexts = this.paintedTexts;
+    const context = new Proxy({} as Record<string, unknown>, {
+      get(_target, property) {
+        if (property === 'canvas') return canvasShell;
+        if (property === 'fillText') return (value: string) => { paintedTexts.push(value); };
+        if (property === 'measureText') return (text: string) => ({ width: text.length * 10 });
+        if (property === 'createLinearGradient' || property === 'createRadialGradient') return () => gradient;
+        return () => undefined;
+      },
+      set: () => true,
+    }) as unknown as CanvasRenderingContext2D;
+    return { renderingContext: context, logicalWidth: this.viewport.width, logicalHeight: this.viewport.height };
+  }
+}
+
 describe('信封到燃烧的端到端链路', () => {
+  it('抽取音效在首次小步上移时也能触发，不要求单帧达到 1px', () => {
+    const drawing = beginDraw(createBurningState(), 1, 700, 0);
+    const moved = movePointer(drawing, 1, 699.5, 16);
+    expect(shouldTriggerEnvelopeDrawOut(drawing, moved)).toBe(true);
+    expect(shouldTriggerEnvelopeDrawOut(drawing, drawing)).toBe(false);
+  });
+
   it('系统合并快速拖动事件时，抬手坐标仍可完成抽取', async () => {
     const { game, platform, layout } = await readyGame();
     const x = layout.envelopeRect.left + layout.envelopeRect.width / 2; const y = layout.envelopeRect.top + 20;
@@ -92,6 +126,46 @@ describe('信封到燃烧的端到端链路', () => {
     const offline = await readyGame('离线内容'); offline.platform.countResult = null; await burnCurrentCard(offline.platform, offline.layout);
     for (let index = 0; index < 26; index += 1) offline.platform.tick(100);
     expect(offline.game.getTestSnapshot().phase).toBe('idle'); expect(offline.game.getTestSnapshot().persisted.journalEntries).toHaveLength(1);
+  });
+
+  it('输入面板打开期间信纸不渲染引导语，取消空白后恢复', async () => {
+    const platform = new HeldInputPlatform(); platform.storage.set(PRIVACY_CONSENT_STORAGE_KEY, 'true');
+    const game = new Game({ platformAdapter: platform }); await game.start(); platform.tick(0);
+    const layout = computeLetterSceneLayout(platform.viewport.width, platform.viewport.height, platform.safe);
+    drawAndFlip(platform, layout);
+    expect(game.getTestSnapshot().phase).toBe('edit');
+    expect(game.getTestSnapshot().inputActive).toBe(true);
+
+    // 输入面板激活期间渲染的帧不应再往信纸上画引导语（透明面板下会与输入文字叠印）
+    platform.paintedTexts.length = 0; platform.tick(100);
+    expect(platform.paintedTexts.join('')).toBe('');
+
+    // 取消且未输入文字：信纸恢复引导语
+    platform.settleDraft(null);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let index = 0; index < 4; index += 1) platform.tick(100);
+    expect(game.getTestSnapshot().phase).toBe('back');
+    platform.paintedTexts.length = 0; platform.tick(100);
+    expect(platform.paintedTexts.join('')).toContain('想说的是……');
+
+    // 确认一句话回到背面后再次点开编辑：信纸上的旧文字同样不与输入面板叠印
+    const cardX = layout.cardRect.left + layout.cardRect.width / 2; const cardY = layout.cardRect.top + layout.cardRect.height / 2;
+    platform.touch('start', cardX, cardY); platform.now += 100; platform.touch('end', cardX, cardY);
+    expect(game.getTestSnapshot().inputActive).toBe(true);
+    platform.settleDraft('一句话');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let index = 0; index < 4; index += 1) platform.tick(100);
+    expect(game.getTestSnapshot().phase).toBe('back');
+    platform.touch('start', cardX, cardY); platform.now += 100; platform.touch('end', cardX, cardY);
+    expect(game.getTestSnapshot().inputActive).toBe(true);
+    platform.paintedTexts.length = 0; platform.tick(100);
+    expect(platform.paintedTexts.join('')).toBe('');
+
+    // 取消编辑：已确认文字原样回到信纸
+    platform.settleDraft(null);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    platform.paintedTexts.length = 0; platform.tick(100);
+    expect(platform.paintedTexts.join('')).toContain('一句话');
   });
 });
 

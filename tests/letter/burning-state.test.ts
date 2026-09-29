@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  AFTERGLOW_DURATION_MS, BURN_DURATION_MS, MAX_FRAME_DELTA_MS, SILENCE_DURATION_MS,
+  AFTERGLOW_DURATION_MS, BURN_DURATION_MS, MAX_FRAME_DELTA_MS, MAX_LETTER_TEXT_LENGTH, SILENCE_DURATION_MS,
   REDUCED_REBOUND_DURATION_MS, REDUCED_UNFOLD_DURATION_MS, STAT_DURATION_MS, UNFOLD_DURATION_MS,
   advanceBurningState, beginDraw, beginThrow, createBurningState,
   beginEditing, endDraw, endThrow, finishEditing, movePointer, resolveCount, setPostcardText,
@@ -119,13 +119,15 @@ describe('燃信纯状态机', () => {
     expect(state.phase).toBe('back');
   });
 
-  it('编辑态保留换行并把特殊符号计入 200 字上限，退出后回缩到背面', () => {
+  it('编辑态保留换行并把特殊符号计入字数上限，退出后回缩到背面', () => {
+    expect(MAX_LETTER_TEXT_LENGTH).toBe(400);
     const front = { ...createBurningState(), phase: 'front' as const };
     const editing = beginEditing(front);
-    const source = `${'字'.repeat(100)}\n${'字'.repeat(99)}😀末尾`;
+    // 超上限构造：换行与表情均按 Unicode 码点计入，截断到 MAX_LETTER_TEXT_LENGTH
+    const source = `${'字'.repeat(MAX_LETTER_TEXT_LENGTH - 2)}\n${'字'.repeat(10)}😀末尾`;
     const written = setPostcardText(editing, source);
     expect(written.phase).toBe('edit');
-    expect(Array.from(written.text)).toHaveLength(200);
+    expect(Array.from(written.text)).toHaveLength(MAX_LETTER_TEXT_LENGTH);
     expect(written.text.includes('\n')).toBe(true);
     const returning = finishEditing(written);
     expect(returning.phase).toBe('edit-return');

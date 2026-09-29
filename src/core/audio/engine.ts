@@ -60,8 +60,9 @@ export class AudioEngine {
   isReunlockRequired(): boolean { return this.reunlockRequired; }
   isPlayingBgm(): boolean { return this.bgmPlaying; }
   async unlock(): Promise<boolean> {
-    const context = this.ensureContext(); if (!context) return false;
-    if (!await resumeAudioContextIfNeeded(context)) return false;
+    const context = this.ensureContext();
+    if (!context) { this.pendingEnvelopeDrawOutPulse = false; this.envelopeDrawOutPlayedForGesture = false; return false; }
+    if (!await resumeAudioContextIfNeeded(context)) { this.pendingEnvelopeDrawOutPulse = false; this.envelopeDrawOutPlayedForGesture = false; return false; }
     try { playSilenceBuffer(context); } catch { /* capability fallback */ }
     this.unlocked = true; this.reunlockRequired = false;
     if (this.pendingEnvelopeDrawOutPulse) {
@@ -86,9 +87,14 @@ export class AudioEngine {
     if (!this.unlocked) { this.pendingEnvelopeDrawOutPulse = true; return; }
     this.playEnvelopeDrawOutSample();
   }
-  /** 手势结束（松手/回弹）后复位一次性触发标记；素材自然播完，不截断尾音。 */
+  /** 音频中断或需要强制取消当前手势时清除一次性触发与待播标记。 */
   resetEnvelopeDrawOutGesture(): void {
     this.pendingEnvelopeDrawOutPulse = false;
+    this.envelopeDrawOutPlayedForGesture = false;
+  }
+  /** 手势结束时释放本轮去重标记；若解锁仍在进行，保留待播标记交给 unlock() 补播。 */
+  finishEnvelopeDrawOutGesture(): void {
+    if (this.unlocked) this.pendingEnvelopeDrawOutPulse = false;
     this.envelopeDrawOutPlayedForGesture = false;
   }
   /** 等待“补播 + 解码 + 调度播放”结算；无待处理时立即返回。离线渲染测试用其消除解码竞态。 */
@@ -121,7 +127,11 @@ export class AudioEngine {
     if (!this.sfxBus || !this.envelopeDrawOutBuffer) return;
     const source = context.createBufferSource();
     source.buffer = this.envelopeDrawOutBuffer;
-    source.connect(this.sfxBus);
+    // 素材响度偏大：先经独立增益衰减，再进 sfxBus，便于单独调节而不影响点燃/燃烧声
+    const playbackGain = context.createGain();
+    playbackGain.gain.value = AUDIO_SYNTHESIS_PARAMETERS.envelopeDrawOut.playbackGain;
+    source.connect(playbackGain);
+    playbackGain.connect(this.sfxBus);
     source.start();
   }
   ignite(): void {

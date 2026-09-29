@@ -1,4 +1,4 @@
-import type { NormalizedTouchPoint, OffscreenCanvasSurface, PlatformAdapter, PrimaryCanvas, SafeAreaInsets, ShareResult, TextInputRequest, TouchPhase } from '../../src/core/platform';
+import type { NormalizedTouchPoint, OffscreenCanvasSurface, PlatformAdapter, PrimaryCanvas, SafeAreaInsets, ShareResult, TextInputRequest, TextInputResult, TouchPhase } from '../../src/core/platform';
 
 function fakeContext(canvasShell?: { width: number }): CanvasRenderingContext2D {
   const gradient = { addColorStop() {} };
@@ -26,7 +26,8 @@ export class FakePlatform implements PlatformAdapter {
   consent = true;
   consentRequests = 0;
   confirmation = true;
-  textResult: string | null = '';
+  textResult: TextInputResult = '';
+  readonly textRequests: TextInputRequest[] = [];
   countResult: number | null = 1;
   countCalls = 0;
   storageReadsSucceed = true;
@@ -53,7 +54,7 @@ export class FakePlatform implements PlatformAdapter {
   onAudioInterruption(): void {}
   async readPersistentValue(key: string): Promise<string | null> { this.reads.push(key); return this.storageReadsSucceed ? this.storage.get(key) ?? null : null; }
   async writePersistentValue(key: string, value: string): Promise<boolean> { this.writes.push({ key, value }); if (this.storageWritesSucceed) this.storage.set(key, value); return this.storageWritesSucceed; }
-  async requestMultilineText(_request: TextInputRequest): Promise<string | null> { return this.textResult; }
+  async requestMultilineText(request: TextInputRequest): Promise<TextInputResult> { this.textRequests.push(request); return this.textResult; }
   async requestPrivacyConsent(): Promise<boolean> { this.consentRequests += 1; return this.consent; }
   async requestConfirmation(): Promise<boolean> { return this.confirmation; }
   async openExternalUrl(url: string): Promise<boolean> { this.openedUrls.push(url); return true; }

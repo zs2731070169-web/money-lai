@@ -15,7 +15,8 @@ const ITEMS: ReadonlyArray<{ action: MenuAction; label: string }> = [
 ];
 
 export function computeMenuLayout(width: number, height: number, safe: SafeAreaInsets): MenuLayout {
-  const panelWidth = Math.min(342, width - safe.left - safe.right - 28);
+  // 收窄面板宽度，行内边距与关闭按钮位置随 panelWidth 推导
+  const panelWidth = Math.min(232, width - safe.left - safe.right - 28);
   const panelTop = safe.top + 12; const rowHeight = Math.min(47, (height - panelTop - safe.bottom - 96) / ITEMS.length);
   const left = width - safe.right - panelWidth - 14;
   return {

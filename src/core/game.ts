@@ -25,6 +25,9 @@ import { computeMenuLayout, type AppPage, type MenuAction } from './render/menu-
 
 const TRANSITION_DURATION_MS = 600;
 const REDUCED_TRANSITION_DURATION_MS = 200;
+/** 菜单面板滑入/滑出时长；减弱动态效果时缩短。 */
+const MENU_PANEL_SLIDE_MS = 240;
+const REDUCED_MENU_PANEL_SLIDE_MS = 80;
 const CLEAR_JOURNAL_DURATION_MS = 2700;
 /** 视口尺寸稳定等待时长：resize/软键盘动画期间沿用旧合成面过渡。 */
 const BACKGROUND_COMPOSITION_SETTLE_MS = 180;
@@ -45,6 +48,21 @@ export interface GameOptions {
 }
 
 interface TouchStart { x: number; y: number; atMs: number; lastY: number }
+
+function canOpenMenu(phase: BurningState['phase']): boolean {
+  return phase === 'idle' || phase === 'unfold' || phase === 'front'
+    || phase === 'edit' || phase === 'edit-return' || phase === 'back' || phase === 'rebound';
+}
+
+/** 抽取音效只看是否出现了新的有效上移，不把单帧位移粗暴舍入到 1px。 */
+export function shouldTriggerEnvelopeDrawOut(
+  previousState: BurningState,
+  nextState: BurningState,
+): boolean {
+  return previousState.phase === 'draw'
+    && nextState.phase === 'draw'
+    && previousState.offsetY !== nextState.offsetY;
+}
 
 export class Game {
   private readonly platform: PlatformAdapter;
@@ -75,6 +93,10 @@ export class Game {
   private galleryScroll = 0;
   private selectedJournalEntry: number | null = null;
   private menuGlowStartedAt: number | null = null;
+  /** 菜单面板滑入/滑出动画起点；null 表示不在动画中（面板全开）。 */
+  private menuPanelStartedAt: number | null = null;
+  /** true 表示正在向右滑出关闭；动画结束后才切回主界面。 */
+  private menuPanelClosing = false;
   private transitionElapsedMs: number | null = null;
   private clearJournalElapsedMs: number | null = null;
   private notice: { text: string; until: number } | null = null;
@@ -84,6 +106,36 @@ export class Game {
   private readonly clearBurnGeometry = createBurnGeometryBuffer();
 
   private readonly envelopeDrawOutAudioUrl: string | null;
+
+  /** 打开菜单：面板从右侧滑入，行命中立即按最终位置生效。 */
+  private openMenuPanel(): void {
+    this.page = 'menu';
+    this.menuPanelStartedAt = this.platform.nowMilliseconds();
+    this.menuPanelClosing = false;
+  }
+
+  /** 关闭菜单：面板向右滑出，动画结束后切回主界面并恢复被菜单挂起的编辑。 */
+  private beginMenuPanelClose(): void {
+    this.menuPanelStartedAt = this.platform.nowMilliseconds();
+    this.menuPanelClosing = true;
+  }
+
+  /** 菜单面板当前展开比例（0–1）：滑入 easeOut、滑出 easeIn；非菜单页恒为 1。 */
+  private menuPanelSlideRatio(): number {
+    if (this.page !== 'menu' || this.menuPanelStartedAt === null) return 1;
+    const durationMs = this.reducedMotion ? REDUCED_MENU_PANEL_SLIDE_MS : MENU_PANEL_SLIDE_MS;
+    const progress = Math.min(1, (this.platform.nowMilliseconds() - this.menuPanelStartedAt) / durationMs);
+    if (this.menuPanelClosing) return 1 - progress * progress * progress;
+    return 1 - Math.pow(1 - progress, 3);
+  }
+
+  /** 滑出动画到达终点：回主界面并补一次被菜单挂起的书写编辑。 */
+  private finishMenuPanelClose(): void {
+    this.menuPanelStartedAt = null;
+    this.menuPanelClosing = false;
+    this.page = 'main';
+    if (this.burning.phase === 'edit') void this.editPostcardText();
+  }
 
   constructor(options: GameOptions) {
     this.platform = options.platformAdapter;
@@ -161,7 +213,7 @@ export class Game {
     const viewport = this.platform.getLogicalViewportSize(); const safe = this.platform.getSafeAreaInsets(); const layout = computeLetterSceneLayout(viewport.width, viewport.height, safe);
     if (phase === 'start') {
       this.touchStart = { x: point.positionX, y: point.positionY, atMs: now, lastY: point.positionY };
-      if (containsPoint(layout.menuRect, point.positionX, point.positionY) && this.burning.phase === 'idle') return;
+      if (containsPoint(layout.menuRect, point.positionX, point.positionY) && canOpenMenu(this.burning.phase)) return;
       if (this.burning.phase === 'idle' && containsPoint(layout.envelopeGrabRect, point.positionX, point.positionY)) {
         this.burning = beginDraw(this.burning, point.pointerId, point.positionY, now);
       } else if (this.burning.phase === 'back' && containsPoint(layout.cardRect, point.positionX, point.positionY)) {
@@ -173,16 +225,17 @@ export class Game {
       const previousState = this.burning;
       if (this.touchStart) this.touchStart.lastY = point.positionY;
       this.burning = movePointer(this.burning, point.pointerId, point.positionY, now);
-      if (previousState.phase === 'draw' && this.burning.phase === 'draw'
-        && Math.abs(this.burning.offsetY - previousState.offsetY) >= 1) this.audio.envelopeDrawOutPulse();
+      if (shouldTriggerEnvelopeDrawOut(previousState, this.burning)) this.audio.envelopeDrawOutPulse();
       return;
     }
     const start = this.touchStart; this.touchStart = null;
     if (!start) return;
-    if (containsPoint(layout.menuRect, start.x, start.y) && containsPoint(layout.menuRect, point.positionX, point.positionY) && this.burning.phase === 'idle') { this.page = 'menu'; return; }
+    if (containsPoint(layout.menuRect, start.x, start.y) && containsPoint(layout.menuRect, point.positionX, point.positionY) && canOpenMenu(this.burning.phase)) { this.openMenuPanel(); return; }
     if (this.burning.phase === 'draw') {
+      const previousState = this.burning;
       this.burning = movePointer(this.burning, point.pointerId, point.positionY, now);
-      const update = endDraw(this.burning, point.pointerId); this.burning = update.state; this.audio.resetEnvelopeDrawOutGesture(); this.consumeEffects(update.effects); return;
+      if (shouldTriggerEnvelopeDrawOut(previousState, this.burning)) this.audio.envelopeDrawOutPulse();
+      const update = endDraw(this.burning, point.pointerId); this.burning = update.state; this.audio.finishEnvelopeDrawOutGesture(); this.consumeEffects(update.effects); return;
     }
     if (this.burning.phase === 'front') {
       if (containsPoint(layout.cardRect, point.positionX, point.positionY)) {
@@ -203,19 +256,27 @@ export class Game {
   }
 
   private async editPostcardText(): Promise<void> {
-    if (this.inputActive || this.burning.phase !== 'edit') return;
+    if (this.inputActive || this.burning.phase !== 'edit' || this.page !== 'main') return;
     this.inputActive = true;
+    let pausedForMenu = false;
     try {
+      const viewport = this.platform.getLogicalViewportSize();
+      const layout = computeLetterSceneLayout(viewport.width, viewport.height, this.platform.getSafeAreaInsets());
       const result = await this.platform.requestMultilineText({
         initialValue: this.burning.text,
         placeholder: this.prompt,
         maxLength: MAX_LETTER_TEXT_LENGTH,
         fontFamily: fontStackForPackage(this.persisted.activeFontPackageId),
+        menuRect: layout.menuRect,
       });
-      if (result !== null) this.burning = setPostcardText(this.burning, result);
+      if (result !== null && typeof result === 'object') {
+        this.burning = setPostcardText(this.burning, result.draft);
+        pausedForMenu = true;
+        this.openMenuPanel();
+      } else if (result !== null) this.burning = setPostcardText(this.burning, result);
     } finally {
       this.inputActive = false;
-      this.burning = finishEditing(this.burning);
+      if (!pausedForMenu) this.burning = finishEditing(this.burning);
     }
   }
 
@@ -237,13 +298,25 @@ export class Game {
     if (phase !== 'end') return;
     this.touchStart = null;
     if (this.page === 'menu') {
+      // 滑出动画进行中忽略触点，避免误触行或重复关闭
+      if (this.menuPanelClosing) return;
       const layout = computeMenuLayout(viewport.width, viewport.height, safe);
-      if (containsPoint(layout.closeRect, point.positionX, point.positionY)) { this.page = 'main'; return; }
+      // 向右滑动关闭菜单：水平位移达阈值且垂直分量小，避免与行点按冲突
+      const swipeDistanceX = point.positionX - start.x;
+      const swipeDistanceY = point.positionY - start.y;
+      const swipedRight = swipeDistanceX >= 56 && Math.abs(swipeDistanceY) <= 48;
+      if (swipedRight || containsPoint(layout.closeRect, point.positionX, point.positionY)) {
+        this.beginMenuPanelClose();
+        return;
+      }
       const row = layout.rows.find((item) => containsPoint(item.rect, point.positionX, point.positionY));
-      if (row) void this.performMenuAction(row.action);
+      if (row) {
+        this.menuPanelStartedAt = null;
+        void this.performMenuAction(row.action);
+      }
       return;
     }
-    if (containsPoint(pageBackRect(safe), point.positionX, point.positionY)) { this.page = 'menu'; this.selectedJournalEntry = null; return; }
+    if (containsPoint(pageBackRect(safe), point.positionX, point.positionY)) { this.openMenuPanel(); this.selectedJournalEntry = null; return; }
     if (this.page === 'journal') {
       if (this.selectedJournalEntry !== null) { this.selectedJournalEntry = null; return; }
       // 页脚「烧掉整本手帐」入口（空手帐时由确认流程自然拦截）
@@ -301,6 +374,11 @@ export class Game {
     const delta = this.lastFrameTimestamp === null ? 0 : Math.max(0, timestamp - this.lastFrameTimestamp); this.lastFrameTimestamp = timestamp;
     const transitionDurationMs = this.reducedMotion ? REDUCED_TRANSITION_DURATION_MS : TRANSITION_DURATION_MS;
     if (this.transitionElapsedMs !== null) { this.transitionElapsedMs += Math.min(delta, 100); if (this.transitionElapsedMs >= transitionDurationMs) { this.transitionElapsedMs = null; this.page = 'journal'; } }
+    // 菜单滑出动画到达终点后切回主界面（delta 钳制与转场一致，防后台跳帧跳过）
+    if (this.menuPanelClosing && this.menuPanelStartedAt !== null) {
+      const durationMs = this.reducedMotion ? REDUCED_MENU_PANEL_SLIDE_MS : MENU_PANEL_SLIDE_MS;
+      if (this.platform.nowMilliseconds() - this.menuPanelStartedAt >= durationMs) this.finishMenuPanelClose();
+    }
     if (this.clearJournalElapsedMs !== null) {
       this.clearJournalElapsedMs += Math.min(delta, 100);
       if (this.clearJournalElapsedMs >= CLEAR_JOURNAL_DURATION_MS) { this.clearJournalElapsedMs = null; const next = clearJournal(this.persisted); void this.platform.writePersistentValue(LETTER_BURNING_STORAGE_KEY, serializeLetterBurningState(next)).then((saved) => { if (saved) { this.persisted = next; this.journalScroll = 0; this.selectedJournalEntry = null; } else this.showNotice(COPY.saveFailed); }); }
@@ -374,8 +452,10 @@ export class Game {
     const layout = computeLetterSceneLayout(viewport.width, viewport.height, safe);
     const glowProgress = this.menuGlowStartedAt === null ? 0 : Math.min(1, (this.platform.nowMilliseconds() - this.menuGlowStartedAt) / 800);
     if (glowProgress >= 1) this.menuGlowStartedAt = null;
-    paintLetterScene(context, { width: viewport.width, height: viewport.height, layout, state: this.burning, prompt: this.prompt, envelopeAppearanceId: this.persisted.activeEnvelopeAppearanceId, paperAppearanceId: this.persisted.activePaperAppearanceId, fontPackageId: this.persisted.activeFontPackageId, burnGeometry: this.burnGeometry, burnSeed: postcardById(this.patternId).burnSeed + this.persisted.postcardMileage, menuGlowProgress: glowProgress, reducedMotion: this.reducedMotion, assets: this.letterSceneAssets });
-    if (this.page !== 'main') paintAppOverlay(context, { width: viewport.width, height: viewport.height, safeArea: safe, page: this.page, state: this.persisted, journalScroll: this.journalScroll, galleryScroll: this.galleryScroll, selectedEntryIndex: this.selectedJournalEntry, background: this.letterSceneAssets.background, backgroundComposed: this.letterSceneAssets.backgroundComposed, openEnvelope: this.letterSceneAssets.openEnvelope, letterPaper: this.letterSceneAssets.letterPaper });
+    // 输入面板激活期间书写内容由输入层独占：信纸不再画引导语与旧文字，避免透明面板下叠印
+    const paperWritingHidden = this.inputActive;
+    paintLetterScene(context, { width: viewport.width, height: viewport.height, layout, state: paperWritingHidden ? { ...this.burning, text: '' } : this.burning, prompt: paperWritingHidden ? '' : this.prompt, envelopeAppearanceId: this.persisted.activeEnvelopeAppearanceId, paperAppearanceId: this.persisted.activePaperAppearanceId, fontPackageId: this.persisted.activeFontPackageId, burnGeometry: this.burnGeometry, burnSeed: postcardById(this.patternId).burnSeed + this.persisted.postcardMileage, menuGlowProgress: glowProgress, reducedMotion: this.reducedMotion, assets: this.letterSceneAssets });
+    if (this.page !== 'main') paintAppOverlay(context, { width: viewport.width, height: viewport.height, safeArea: safe, page: this.page, state: this.persisted, journalScroll: this.journalScroll, galleryScroll: this.galleryScroll, selectedEntryIndex: this.selectedJournalEntry, menuSlideRatio: this.menuPanelSlideRatio(), background: this.letterSceneAssets.background, backgroundComposed: this.letterSceneAssets.backgroundComposed, openEnvelope: this.letterSceneAssets.openEnvelope, letterPaper: this.letterSceneAssets.letterPaper });
     if (this.transitionElapsedMs !== null) { const durationMs = this.reducedMotion ? REDUCED_TRANSITION_DURATION_MS : TRANSITION_DURATION_MS; const ratio = Math.min(1, this.transitionElapsedMs / durationMs); context.fillStyle = `rgba(78,61,49,${0.38 * Math.sin(ratio * Math.PI)})`; context.fillRect(0, 0, viewport.width, viewport.height); }
     if (this.clearJournalElapsedMs !== null) paintPageBurn(context, viewport.width, viewport.height, Math.min(1, this.clearJournalElapsedMs / BURN_DURATION_MS), this.clearBurnGeometry, 104729);
     if (this.notice && this.notice.until > this.platform.nowMilliseconds()) { context.save(); context.fillStyle = 'rgba(73,88,83,.82)'; context.font = "13px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center'; context.fillText(this.notice.text, viewport.width / 2, viewport.height - safe.bottom - 34); context.restore(); } else if (this.notice) this.notice = null;

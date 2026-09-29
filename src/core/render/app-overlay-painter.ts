@@ -33,8 +33,14 @@ function title(context: CanvasRenderingContext2D, label: string, width: number, 
   context.textAlign = 'left'; context.font = "16px ui-rounded,'PingFang SC',sans-serif"; context.fillText(COPY.backLabel, safe.left + 19, safe.top + 38);
 }
 
-function paintMenu(context: CanvasRenderingContext2D, layout: MenuLayout): void {
-  context.save(); context.fillStyle = 'rgba(74,59,47,.2)'; context.fillRect(0, 0, layout.panelRect.left, layout.panelRect.top + layout.panelRect.height);
+function paintMenu(context: CanvasRenderingContext2D, layout: MenuLayout, slideRatio: number, viewportWidth: number): void {
+  const ratio = Math.max(0, Math.min(1, slideRatio));
+  context.save();
+  // 遮罩随展开比例淡入淡出；面板整体从右缘滑入（ratio=1 时位移为零）
+  context.globalAlpha = ratio;
+  context.fillStyle = 'rgba(74,59,47,.2)'; context.fillRect(0, 0, layout.panelRect.left, layout.panelRect.top + layout.panelRect.height);
+  context.globalAlpha = 1;
+  context.translate((1 - ratio) * (viewportWidth - layout.panelRect.left), 0);
   context.shadowColor = 'rgba(65,49,39,.18)'; context.shadowBlur = 26; context.fillStyle = '#F6ECDD'; context.fillRect(layout.panelRect.left, layout.panelRect.top, layout.panelRect.width, layout.panelRect.height); context.shadowColor = 'transparent';
   context.fillStyle = INK; context.textAlign = 'center'; context.textBaseline = 'middle'; context.font = "22px ui-rounded,'PingFang SC',sans-serif"; context.fillText('×', layout.closeRect.left + layout.closeRect.width / 2, layout.closeRect.top + layout.closeRect.height / 2);
   context.textAlign = 'left'; context.font = "16px ui-rounded,'PingFang SC',sans-serif";
@@ -171,13 +177,15 @@ function paintFontPackages(
 export interface AppOverlayPaintOptions {
   width: number; height: number; safeArea: SafeAreaInsets; page: Exclude<AppPage, 'main'>;
   state: LetterBurningPersistedState; journalScroll: number; galleryScroll: number; selectedEntryIndex: number | null;
+  /** 菜单面板展开比例（0–1）：滑入/滑出动画用；缺省视为 1（全开）。 */
+  menuSlideRatio?: number;
   background?: CanvasImageSource | null; backgroundComposed?: CanvasImageSource | null;
   openEnvelope?: CanvasImageSource | null; letterPaper?: CanvasImageSource | null;
 }
 
 export function paintAppOverlay(context: CanvasRenderingContext2D, options: AppOverlayPaintOptions): void {
   const { width, height, safeArea, page, state } = options;
-  if (page === 'menu') { paintMenu(context, computeMenuLayout(width, height, safeArea)); return; }
+  if (page === 'menu') { paintMenu(context, computeMenuLayout(width, height, safeArea), options.menuSlideRatio ?? 1, width); return; }
   paintPaperBackground(context, width, height, options.background, options.backgroundComposed);
   if (page === 'journal') { paintJournal(context, width, height, safeArea, state.journalEntries, options.journalScroll, options.selectedEntryIndex, options.letterPaper, state.activePaperAppearanceId); return; }
   if (page === 'gallery') { paintGallery(context, width, height, safeArea, state, options.galleryScroll, options.letterPaper); return; }

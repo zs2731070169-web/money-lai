@@ -113,6 +113,22 @@ describe('AudioEngine 解锁与中断状态机', () => {
     expect(peak).toBeGreaterThan(0.01);
   });
 
+  it('抬手结束手势时不清掉尚未完成解锁的待播抽出声', async () => {
+    const context = new OfflineAudioContext(1, 44100, 44100);
+    const engine = new AudioEngine({ createAudioContext: () => context as unknown as AudioContext });
+    engine.setEnvelopeDrawOutSample(createWavSampleBytes(0.3));
+
+    const unlocking = engine.unlock();
+    engine.envelopeDrawOutPulse();
+    engine.finishEnvelopeDrawOutGesture();
+    expect(await unlocking).toBe(true);
+    await engine.whenEnvelopeDrawOutSettled();
+
+    const rendered = await context.startRendering();
+    const peak = Math.max(...rendered.getChannelData(0).map(Math.abs));
+    expect(peak).toBeGreaterThan(0.01);
+  });
+
   it('unlock 前静默（不创建上下文、不发声），首次 unlock 后进入已解锁态', async () => {
     let contextCreationCount = 0;
     const engine = new AudioEngine({

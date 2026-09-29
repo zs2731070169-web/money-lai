@@ -193,7 +193,7 @@ export function paintPaperWriting(
     : Math.max(8, Math.min(13, rect.width * 0.048));
   const minimumFontSize = isPrompt
     ? Math.max(9, Math.min(13, rect.width * 0.045))
-    : Math.max(6, Math.min(9, rect.width * 0.027));
+    : Math.max(9, Math.min(10, rect.width * 0.03));
   const lineHeightScale = isPrompt ? 1.42 : 1.48;
   let fontSize = preferredFontSize;
   let lineHeight = fontSize * lineHeightScale;
@@ -215,6 +215,9 @@ export function paintPaperWriting(
   context.textBaseline = 'top';
   context.globalAlpha = text ? 0.94 : 0.52;
   context.font = `${fontSize}px ${fontStackForPackage(fontPackageId)}`;
+  context.beginPath();
+  context.rect(writingLeft, writingTop, writingWidth, writingHeight);
+  context.clip();
   for (let index = 0; index < lines.length; index += 1) {
     context.fillText(lines[index], writingLeft, writingTop + index * lineHeight, writingWidth);
   }
@@ -254,9 +257,11 @@ function paintEnvelopeAssetLayer(
   image: CanvasImageSource,
   appearanceId: string,
   shadow = false,
+  opacity = 1,
 ): void {
   const target = computeEnvelopeAssetRect(rect);
   context.save();
+  context.globalAlpha = opacity;
   if (shadow) {
     context.shadowColor = 'rgba(77,55,39,.2)'; context.shadowBlur = 20; context.shadowOffsetY = 8;
   }
@@ -389,6 +394,21 @@ function interpolateRect(from: Rect, to: Rect, progress: number): Rect {
   };
 }
 
+/**
+ * 回缩时先让信纸回到卡片附近，再显现信封前袋。
+ * 这样前袋不会在回收动画开头抢先盖到画面上；普通阶段仍保持完全不透明。
+ */
+function editReturnFrontAlpha(state: BurningState, reducedMotion = false): number {
+  if (state.phase !== 'edit-return') return 1;
+  const durationMs = reducedMotion ? REDUCED_EDIT_RETURN_DURATION_MS : EDIT_RETURN_DURATION_MS;
+  const progress = Math.max(0, Math.min(1, state.elapsedMs / durationMs));
+  const revealStart = 0.76;
+  const revealEnd = 0.9;
+  if (progress <= revealStart) return 0;
+  const revealProgress = Math.min(1, (progress - revealStart) / (revealEnd - revealStart));
+  return 1 - Math.pow(1 - revealProgress, 3);
+}
+
 function paintActivePostcard(context: CanvasRenderingContext2D, options: LetterScenePaintOptions): void {
   const { state, layout } = options;
   if (state.phase === 'draw' || state.phase === 'unfold') {
@@ -424,6 +444,7 @@ export function paintLetterScene(context: CanvasRenderingContext2D, options: Let
   const openEnvelopeBack = options.assets?.openEnvelopeBack;
   const openEnvelopeFront = options.assets?.openEnvelopeFront;
   const legacyOpenEnvelope = options.assets?.openEnvelope;
+  const envelopeFrontAlpha = editReturnFrontAlpha(state, options.reducedMotion);
   if (!ritualClear && state.phase === 'edit') {
     // 编辑态让原始信纸独占可用视口，避免信封层把放大后的纸面截断。
     paintActivePostcard(context, options);
@@ -432,13 +453,17 @@ export function paintLetterScene(context: CanvasRenderingContext2D, options: Let
     paintEnvelopeAssetLayer(context, layout.envelopeRect, openEnvelopeBack, options.envelopeAppearanceId, true);
     if (state.phase === 'idle') paintFoldedTop(context, layout.foldedCardRect, options.paperAppearanceId, options.assets?.letterPaper);
     else paintActivePostcard(context, options);
-    paintEnvelopeAssetLayer(context, layout.envelopeRect, openEnvelopeFront, options.envelopeAppearanceId);
+    if (envelopeFrontAlpha > 0) {
+      paintEnvelopeAssetLayer(context, layout.envelopeRect, openEnvelopeFront, options.envelopeAppearanceId, false, envelopeFrontAlpha);
+    }
   } else if (!ritualClear && legacyOpenEnvelope) {
     // 仅为旧快照/菜单测试保留；发行入口不会走这条路径。
     paintEnvelopeAssetLayer(context, layout.envelopeRect, legacyOpenEnvelope, options.envelopeAppearanceId, true);
     if (state.phase === 'idle') paintFoldedTop(context, layout.foldedCardRect, options.paperAppearanceId, options.assets?.letterPaper);
     else paintActivePostcard(context, options);
-    paintEnvelopeAssetLayer(context, layout.envelopeRect, legacyOpenEnvelope, options.envelopeAppearanceId);
+    if (envelopeFrontAlpha > 0) {
+      paintEnvelopeAssetLayer(context, layout.envelopeRect, legacyOpenEnvelope, options.envelopeAppearanceId, false, envelopeFrontAlpha);
+    }
   } else if (!ritualClear) paintActivePostcard(context, options);
   const glow = afterglowVisual(state);
   if (glow.alpha > 0) {

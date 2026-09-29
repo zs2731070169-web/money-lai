@@ -18,7 +18,8 @@
         position: fixed;
         inset: 0;
         overflow: hidden;
-        touch-action: none;
+        /* touch-action 不能在 body 上设 none：祖先链取交集会压掉 DOM 输入层 pan-y 滚动；
+           画布手势所需的 none 改由适配器在 canvas 元素上设置。 */
         overscroll-behavior: none;
         margin: 0;
         /* 暖纸背景，与首帧画布保持一致。 */

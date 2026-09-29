@@ -9,6 +9,26 @@ import { FakePlatform } from '../helpers/fake-platform';
 
 function click(platform: FakePlatform, x: number, y: number) { platform.touch('start', x, y); platform.touch('end', x, y); }
 
+/** 点关闭按钮后推进时钟穿过 240ms 滑出动画（行点按不受开启动画影响，无需等待）。 */
+function closeMenuAndWait(platform: FakePlatform, menu: ReturnType<typeof computeMenuLayout>) {
+  click(platform, menu.closeRect.left + 22, menu.closeRect.top + 22);
+  for (let index = 0; index < 3; index += 1) platform.tick(100);
+}
+
+async function readyMainScene() {
+  const platform = new FakePlatform(); platform.storage.set(PRIVACY_CONSENT_STORAGE_KEY, 'true');
+  const game = new Game({ platformAdapter: platform }); await game.start(); platform.tick(0);
+  const scene = computeLetterSceneLayout(platform.viewport.width, platform.viewport.height, platform.safe);
+  return { platform, game, scene };
+}
+
+function extractPaper(platform: FakePlatform, scene: ReturnType<typeof computeLetterSceneLayout>) {
+  const x = scene.envelopeRect.left + scene.envelopeRect.width / 2;
+  const y = scene.envelopeRect.top + 20;
+  platform.touch('start', x, y); platform.now += 100;
+  platform.touch('move', x, y - 100); platform.touch('end', x, y - 100);
+}
+
 /** 从菜单进入手帐页：点行后推进 0.6s 渐暗转场。 */
 async function openJournalPage(platform: FakePlatform, menu: ReturnType<typeof computeMenuLayout>) {
   const row = menu.rows.find((item) => item.action === 'journal');
@@ -30,6 +50,79 @@ async function preparedGame() {
 }
 
 describe('燃信菜单与页面', () => {
+  it('信纸抽出后展开中可打开菜单，自动放大编辑会等待菜单关闭', async () => {
+    const { platform, game, scene } = await readyMainScene();
+    extractPaper(platform, scene);
+    expect(game.getTestSnapshot().phase).toBe('unfold');
+    click(platform, scene.menuRect.left + 24, scene.menuRect.top + 24);
+    expect(game.getTestSnapshot().page).toBe('menu');
+    for (let index = 0; index < 5; index += 1) platform.tick(100);
+    expect(game.getTestSnapshot().phase).toBe('edit');
+    expect(platform.textRequests).toHaveLength(0);
+
+    const menu = computeMenuLayout(platform.viewport.width, platform.viewport.height, platform.safe);
+    closeMenuAndWait(platform, menu);
+    expect(platform.textRequests).toHaveLength(1);
+    expect(platform.textRequests[0].menuRect).toEqual(scene.menuRect);
+    await Promise.resolve();
+    expect(game.getTestSnapshot().page).toBe('main');
+    expect(game.getTestSnapshot().phase).toBe('edit-return');
+  });
+
+  it('放大编辑中打开菜单暂存草稿，返回后继续输入，取消仅撤销本次编辑', async () => {
+    const { platform, game, scene } = await readyMainScene();
+    platform.textResult = { kind: 'menu', draft: '保留的草稿\n第二行' };
+    extractPaper(platform, scene);
+    for (let index = 0; index < 5; index += 1) platform.tick(100);
+    await Promise.resolve();
+    expect(game.getTestSnapshot().page).toBe('menu');
+    expect(game.getTestSnapshot().phase).toBe('edit');
+    expect(game.getTestSnapshot().inputActive).toBe(false);
+    expect(platform.textRequests[0].menuRect).toEqual(scene.menuRect);
+
+    const menu = computeMenuLayout(platform.viewport.width, platform.viewport.height, platform.safe);
+    const fontRow = menu.rows.find((row) => row.action === 'font-packages');
+    if (!fontRow) throw new Error('菜单缺少字体套餐入口');
+    click(platform, fontRow.rect.left + 20, fontRow.rect.top + fontRow.rect.height / 2);
+    expect(game.getTestSnapshot().page).toBe('font-packages');
+    click(platform, platform.safe.left + 30, platform.safe.top + 34);
+    expect(game.getTestSnapshot().page).toBe('menu');
+    platform.textResult = null;
+    closeMenuAndWait(platform, menu);
+    expect(platform.textRequests[1].initialValue).toBe('保留的草稿\n第二行');
+    await Promise.resolve();
+    expect(game.getTestSnapshot().page).toBe('main');
+    expect(game.getTestSnapshot().phase).toBe('edit-return');
+    for (let index = 0; index < 4; index += 1) platform.tick(100);
+    expect(game.getTestSnapshot().phase).toBe('back');
+  });
+
+  it('信纸回缩和背面可打开菜单，燃烧过程不可由菜单打断', async () => {
+    const { platform, game, scene } = await readyMainScene();
+    extractPaper(platform, scene);
+    for (let index = 0; index < 5; index += 1) platform.tick(100);
+    await Promise.resolve();
+    expect(game.getTestSnapshot().phase).toBe('edit-return');
+    const menu = computeMenuLayout(platform.viewport.width, platform.viewport.height, platform.safe);
+    click(platform, scene.menuRect.left + 24, scene.menuRect.top + 24);
+    expect(game.getTestSnapshot().page).toBe('menu');
+    closeMenuAndWait(platform, menu);
+    for (let index = 0; index < 4; index += 1) platform.tick(100);
+    expect(game.getTestSnapshot().phase).toBe('back');
+    click(platform, scene.menuRect.left + 24, scene.menuRect.top + 24);
+    expect(game.getTestSnapshot().page).toBe('menu');
+    closeMenuAndWait(platform, menu);
+
+    const cardX = scene.cardRect.left + scene.cardRect.width / 2;
+    const cardY = scene.cardRect.top + scene.cardRect.height / 2;
+    platform.touch('start', cardX, cardY); platform.now += 200;
+    platform.touch('move', cardX, cardY - 180); platform.touch('end', cardX, cardY - 180);
+    expect(game.getTestSnapshot().phase).toBe('burn');
+    click(platform, scene.menuRect.left + 24, scene.menuRect.top + 24);
+    expect(game.getTestSnapshot().page).toBe('main');
+    expect(game.getTestSnapshot().phase).toBe('burn');
+  });
+
   it('图鉴使用单张真实信纸素材居中呈现，不恢复旧 24 格代码图案', () => {
     const safe = { top: 20, bottom: 0, left: 0, right: 0 };
     const initial = computeGalleryLayout(375, 667, safe, 0);
@@ -102,6 +195,33 @@ describe('燃信菜单与页面', () => {
     if (!row) throw new Error('菜单缺少手帐入口');
     click(platform, row.rect.left + 20, row.rect.top + row.rect.height / 2);
     platform.tick(100); expect(game.getTestSnapshot().page).toBe('main'); platform.tick(100); expect(game.getTestSnapshot().page).toBe('journal');
+  });
+
+  it('菜单支持向右滑动关闭，小位移右移仍按行点按处理', async () => {
+    const { platform, game } = await readyMainScene();
+    const scene = computeLetterSceneLayout(platform.viewport.width, platform.viewport.height, platform.safe);
+    click(platform, scene.menuRect.left + 24, scene.menuRect.top + 24);
+    expect(game.getTestSnapshot().page).toBe('menu');
+    const menu = computeMenuLayout(platform.viewport.width, platform.viewport.height, platform.safe);
+
+    // 面板内向右滑 70px（垂直分量小）→ 滑出动画结束后回主界面
+    const swipeY = menu.panelRect.top + 160;
+    const swipeX = menu.panelRect.left + 60;
+    platform.touch('start', swipeX, swipeY); platform.touch('move', swipeX + 35, swipeY + 4); platform.touch('end', swipeX + 70, swipeY + 6);
+    expect(game.getTestSnapshot().page).toBe('menu');
+    for (let index = 0; index < 3; index += 1) platform.tick(100);
+    expect(game.getTestSnapshot().page).toBe('main');
+
+    // 重新打开菜单：右移不足阈值且落点仍在行内 → 正常触发该行导航
+    click(platform, scene.menuRect.left + 24, scene.menuRect.top + 24);
+    expect(game.getTestSnapshot().page).toBe('menu');
+    const journalRow = menu.rows.find((item) => item.action === 'journal');
+    if (!journalRow) throw new Error('菜单缺少手帐入口');
+    const rowX = journalRow.rect.left + 30; const rowY = journalRow.rect.top + journalRow.rect.height / 2;
+    platform.touch('start', rowX, rowY); platform.touch('move', rowX + 20, rowY + 2); platform.touch('end', rowX + 40, rowY + 3);
+    for (let index = 0; index < 7; index += 1) platform.tick(100);
+    await Promise.resolve();
+    expect(game.getTestSnapshot().page).toBe('journal');
   });
 
   it('手帐页页脚提供烧掉整本手帐入口，确认后播放整页燃烧且不调用公开计数', async () => {

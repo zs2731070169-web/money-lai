@@ -4,7 +4,7 @@ import { Preferences } from '@capacitor/preferences';
 import { Share } from '@capacitor/share';
 import type {
   LogicalViewportSize, NormalizedTouchPoint, PlatformAdapter, PrimaryCanvas,
-  SafeAreaInsets, ShareResult, TextInputRequest, TouchPhase,
+  SafeAreaInsets, ShareResult, TextInputRequest, TextInputResult, TouchPhase,
 } from '../core/platform';
 import { COPY } from '../core/content/copy';
 import { incrementAnonymousBurnCount } from './anonymous-count-client';
@@ -69,7 +69,8 @@ function createPaperPanel(): HTMLDivElement {
 }
 function createWritingPanel(): HTMLDivElement {
   const panel = document.createElement('div');
-  Object.assign(panel.style, { width: 'min(560px, 100%)', minHeight: 'min(68vh, 620px)', padding: 'clamp(22px, 6vw, 42px)', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', color: '#495853' });
+  // position:relative 作为字数指示的锚点：指示挂在面板层，避免被输入区 overflow:hidden 裁切
+  Object.assign(panel.style, { position: 'relative', width: 'min(560px, 100%)', height: 'min(68dvh, 620px)', maxHeight: 'calc(100dvh - 48px)', padding: 'clamp(22px, 6vw, 42px)', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', overflow: 'hidden', color: '#495853' });
   return panel;
 }
 function button(label: string, primary = false): HTMLButtonElement {
@@ -78,32 +79,82 @@ function button(label: string, primary = false): HTMLButtonElement {
   return element;
 }
 
-function requestMultilineText(request: TextInputRequest): Promise<string | null> {
+/** 隐藏输入层滚动条但保留滚动：scrollbar-width 走行内，::-webkit-scrollbar 只能靠注入的一次性规则表达。 */
+let draftScrollbarRuleReady = false;
+function hideDraftScrollbar(element: HTMLElement): void {
+  element.style.scrollbarWidth = 'none';
+  element.classList.add('draft-scroll-without-bar');
+  if (draftScrollbarRuleReady) return;
+  const rule = document.createElement('style');
+  rule.textContent = '.draft-scroll-without-bar::-webkit-scrollbar{display:none}';
+  document.head.append(rule);
+  draftScrollbarRuleReady = true;
+}
+
+function requestMultilineText(request: TextInputRequest): Promise<TextInputResult> {
   return new Promise((resolve) => {
     const shell = createOverlayShell(true); const panel = createWritingPanel();
-    // 用 contenteditable 代替 <textarea>：WebKit 只为表单文本域显示「第 X 行，共 Y 行/完成」
-    // 原生附件条，contenteditable 聚焦时不出现该条；plaintext-only 保持纯文本输入与粘贴。
+    // 用 contenteditable 代替 <textarea>：WebKit 为表单文本域显示「第 X 行，共 Y 行/完成」
+    // 附件条，contenteditable 不出现该条；plaintext-only 保持纯文本输入与粘贴。
+    // 注意 iOS 26 对 contenteditable 聚焦也会挂底部键盘附属条，随键盘一起出现，属系统行为。
+    const draftPaddingY = '61px'; const draftPaddingX = '29px';
+    // 编辑区保持单页高度，超出的正文只在输入层内部滚动。
+    const inputArea = document.createElement('div');
+    Object.assign(inputArea.style, { position: 'relative', width: '100%', flex: '1', minHeight: '0', overflow: 'hidden' });
     const input = document.createElement('div');
     try { input.contentEditable = 'plaintext-only'; } catch { input.contentEditable = 'true'; }
     input.textContent = normalizeMultilineInput(request.initialValue, request.maxLength);
     input.autocapitalize = 'none'; input.spellcheck = false; input.setAttribute('autocorrect', 'off');
-    Object.assign(input.style, { width: '100%', flex: '1', minHeight: 'min(42vh, 360px)', boxSizing: 'border-box', padding: '14px 6px', outline: 'none', overflowY: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'break-word', background: 'transparent', color: '#354940', font: `18px/1.55 ${request.fontFamily ?? "'Letter LXGW WenKai',cursive"}`, caretColor: '#6F4F3E' });
-    const actions = document.createElement('div'); Object.assign(actions.style, { position: 'fixed', left: '50%', bottom: 'calc(env(safe-area-inset-bottom, 0px) + clamp(28px, 7vh, 76px))', transform: 'translateX(-50%)', width: 'min(280px, calc(100vw - 48px))', display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '0', zIndex: '22' });
+    // body 上的 user-select:none 供画布手势防误选；编辑区显式放开，保证长按/拖选可跨多字符
+    Object.assign(input.style, { width: '100%', height: '100%', boxSizing: 'border-box', padding: `${draftPaddingY} ${draftPaddingX}`, outline: 'none', overflowY: 'auto', overscrollBehaviorY: 'contain', touchAction: 'pan-y', WebkitOverflowScrolling: 'touch', whiteSpace: 'pre-wrap', overflowWrap: 'break-word', background: 'transparent', color: '#354940', letterSpacing: '-0.2px', font: `17px/1.4 ${request.fontFamily ?? "'Letter LXGW WenKai',cursive"}`, caretColor: '#6F4F3E', userSelect: 'text', webkitUserSelect: 'text' });
+    hideDraftScrollbar(input);
+    const actions = document.createElement('div'); Object.assign(actions.style, { position: 'fixed', left: '50%', bottom: 'calc(env(safe-area-inset-bottom, 0px) + clamp(28px, 7vh, 50px))', transform: 'translateX(-50%)', width: 'min(300px, calc(100vw - 48px))', display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '0', zIndex: '22' });
     const cancel = button(COPY.cancel); const done = button(COPY.confirm, true);
     let finished = false;
     // innerText 把 contenteditable 的换行读成 \n；行内不间断空格归一为普通空格后，再按 Unicode 码点裁切长度
     const readInput = (): string => input.innerText.replace(/\u00a0/g, ' ');
+    // 空态引导占位：输入面板激活期间信纸不再画引导语，改呈现在输入区；
+    // 输入第一个字符后自动隐藏，清空回纯空白时恢复。
+    const draftPlaceholder = document.createElement('div');
+    draftPlaceholder.textContent = request.placeholder;
+    Object.assign(draftPlaceholder.style, { position: 'absolute', left: draftPaddingX, right: draftPaddingX, top: draftPaddingY, color: 'rgba(53,73,64,.82)', pointerEvents: 'none', whiteSpace: 'pre-wrap', overflowWrap: 'break-word', letterSpacing: '-0.2px', font: `17px/1.4 ${request.fontFamily ?? "'Letter LXGW WenKai',cursive"}` });
+    const refreshDraftPlaceholder = (): void => {
+      if (!request.placeholder) return;
+      draftPlaceholder.style.visibility = readInput().trim() === '' ? 'visible' : 'hidden';
+    };
+    // 右下角字数指示：当前字数与总上限同用 Unicode 码点口径，随输入即时刷新。
+    // 挂在面板层（面板已 position:relative）：输入区的 overflow:hidden 会把出界的负偏移裁掉，
+    // 面板右缘更靠外，正偏移即可贴近纸角；负值同样会被面板裁切，勿用。
+    const characterCounter = document.createElement('div');
+    Object.assign(characterCounter.style, { position: 'absolute', right: '10px', bottom: '42px', pointerEvents: 'none', color: 'rgba(53,73,64)', font: "14px ui-rounded,'PingFang SC',sans-serif", fontVariantNumeric: 'tabular-nums' });
+    const refreshCharacterCounter = (): void => {
+      characterCounter.textContent = `${Array.from(readInput()).length}/${request.maxLength}`;
+    };
     const normalizeInput = (): string => {
       const current = readInput();
       const normalized = normalizeMultilineInput(current, request.maxLength);
       if (normalized !== current) input.textContent = normalized;
+      refreshDraftPlaceholder();
+      refreshCharacterCounter();
       return normalized;
     };
-    const finish = (result: string | null) => { if (finished) return; finished = true; input.blur(); shell.remove(); window.setTimeout(() => resolve(result), 50); };
+    const finish = (result: TextInputResult) => { if (finished) return; finished = true; input.blur(); shell.remove(); window.setTimeout(() => resolve(result), 50); };
     cancel.onclick = () => finish(null); done.onclick = () => finish(normalizeInput());
     input.addEventListener('input', normalizeInput);
     input.addEventListener('keydown', (event) => { if (event.key === 'Escape') finish(null); if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); finish(normalizeInput()); } });
-    actions.append(cancel, done); panel.append(input, actions); shell.append(panel); document.body.append(shell); window.setTimeout(() => input.focus(), 30);
+    refreshDraftPlaceholder(); refreshCharacterCounter();
+    actions.append(cancel, done); inputArea.append(input, draftPlaceholder); panel.append(inputArea, actions, characterCounter); shell.append(panel);
+    if (request.menuRect) {
+      // 编辑层覆盖 Canvas；在原有菜单图标上方留同尺寸透明热区，暂停时带回草稿。
+      const menu = document.createElement('button');
+      menu.type = 'button'; menu.setAttribute('aria-label', '打开菜单');
+      Object.assign(menu.style, { position: 'fixed', left: `${request.menuRect.left}px`, top: `${request.menuRect.top}px`, width: `${request.menuRect.width}px`, height: `${request.menuRect.height}px`, zIndex: '23', padding: '0', border: '0', background: 'transparent', cursor: 'pointer' });
+      menu.onclick = () => finish({ kind: 'menu', draft: normalizeInput() });
+      shell.append(menu);
+    }
+    // 自动唤起键盘与底部系统输入条, 书写区自然聚焦
+    document.body.append(shell);
+    window.setTimeout(() => { if (!finished) input.focus(); }, 30);
   });
 }
 
@@ -234,7 +285,13 @@ export function createWebPlatformAdapter(): PlatformAdapter {
           const request = new XMLHttpRequest();
           request.open('GET', assetUrl, true);
           request.responseType = 'arraybuffer';
-          request.onload = () => { resolve(request.status === 200 ? (request.response as ArrayBuffer) : null); };
+          request.onload = () => {
+            const response = request.response as ArrayBuffer | null;
+            // capacitor:// 本地资源在 WKWebView 中可能返回 status=0；只要确实拿到非空字节，就不能误判为缺失。
+            const httpSuccess = request.status >= 200 && request.status < 300;
+            const localSchemeSuccess = request.status === 0 && response instanceof ArrayBuffer && response.byteLength > 0;
+            resolve(httpSuccess || localSchemeSuccess ? response : null);
+          };
           request.onerror = () => { resolve(null); };
           request.send();
         } catch {

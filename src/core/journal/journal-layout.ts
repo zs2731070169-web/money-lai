@@ -7,8 +7,10 @@ export interface JournalLayout {
   backRect: Rect;
   cells: JournalCellLayout[];
   contentHeight: number;
-  noteY: number;
 }
+
+/** 手帐页眉带高度（安全区顶部起）：标题/返回/右上入口所在带；网格与清空渐隐都止于其下缘。 */
+export const JOURNAL_HEADER_BAND_HEIGHT = 72;
 
 export function computeJournalLayout(
   width: number,
@@ -22,7 +24,7 @@ export function computeJournalLayout(
   const columns = width < 390 ? 2 : 3;
   const cellWidth = (width - horizontalPadding * 2 - gap * (columns - 1)) / columns;
   const cellHeight = cellWidth * 1.34;
-  const headerHeight = 72;
+  const headerHeight = JOURNAL_HEADER_BAND_HEIGHT;
   const contentTop = safeArea.top + headerHeight;
   const rowHeight = cellHeight + gap;
   const totalRows = Math.ceil(entryCount / columns);
@@ -50,7 +52,6 @@ export function computeJournalLayout(
     backRect: { left: horizontalPadding - 8, top: safeArea.top + 12, width: 52, height: 44 },
     cells,
     contentHeight,
-    noteY: height - safeArea.bottom - 18,
   };
 }
 

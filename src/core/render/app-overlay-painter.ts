@@ -2,7 +2,7 @@ import { COPY, FONT_PACKAGE_COPY } from '../content/copy';
 import type { JournalEntry, LetterBurningPersistedState } from '../journal/journal-state';
 import { computeJournalLayout } from '../journal/journal-layout';
 import { LETTER_ACHIEVEMENTS } from '../meta/postcard-progress';
-import { FONT_PACKAGES, fontStackForPackage } from './letter-font';
+import { FONT_PACKAGES, fontStackForPackage, type FontPackageId } from './letter-font';
 import type { SafeAreaInsets } from '../platform';
 import type { Rect } from './letter-layout';
 import { containsPoint } from './letter-layout';
@@ -72,7 +72,8 @@ function paintJournal(
   entries: readonly JournalEntry[],
   scroll: number,
   selectedEntryIndex: number | null,
-  fontPackageId: string,
+  detailScroll: number,
+  fontPackageId: FontPackageId,
   letterPaper?: CanvasImageSource | null,
 ): void {
   const layout = computeJournalLayout(width, height, safe, entries.length, scroll); title(context, COPY.journal, width, safe);
@@ -85,12 +86,17 @@ function paintJournal(
     context.save(); context.shadowColor = 'rgba(64,49,38,.14)'; context.shadowBlur = 8; context.shadowOffsetY = 3;
     const paperRect = containLetter(artArea, 2);
     paintLetterPaperAsset(context, paperRect, letterPaper); context.restore();
+    // 网格缩略：整页缩影——固定极小字号（随纸宽约 3%，钳制 2.5–5px），密密麻麻不可读，
+    // 超长内容被书写区裁剪，看起来像一整页手写信念缩小后的样子
+    if (entry.text) {
+      const miniatureFontSize = Math.max(2.5, Math.min(5, paperRect.width * 0.03));
+      paintPaperWriting(context, paperRect, entry.text, fontPackageId, { fixedFontSize: miniatureFontSize });
+    }
     context.fillStyle = INK; context.globalAlpha = 0.7; context.font = "11px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center'; context.fillText(entry.createdAtIso.slice(0, 10), cell.rect.left + cell.rect.width / 2, cell.rect.top + cell.rect.height - 7); context.globalAlpha = 1;
   }
   context.restore();
-  context.fillStyle = INK; context.globalAlpha = 0.56; context.textAlign = 'center'; context.font = "12px ui-rounded,'PingFang SC',sans-serif"; context.fillText(COPY.localOnly, width / 2, layout.noteY); context.globalAlpha = 1;
   // 页眉带右上：清空整本手帐入口（右对齐与左上返回镜像，滚动全程不被网格遮挡；命中盒见 journalClearRect）
-  context.fillStyle = INK; context.globalAlpha = entries.length > 0 ? 0.62 : 0.3; context.font = "16px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'right';
+  context.fillStyle = INK; context.globalAlpha = entries.length > 0 ? 0.85 : 0.3; context.font = "18px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'right';
   context.fillText(COPY.clearJournal, width - safe.right - 19, safe.top + 38); context.textAlign = 'center'; context.globalAlpha = 1;
   if (selectedEntryIndex !== null && entries[selectedEntryIndex]) {
     // 点开后放大整封信纸：文字用与书写态相同的换行/字体/混合排版，原格式清楚可读
@@ -104,7 +110,7 @@ function paintJournal(
     context.fillStyle = INK; context.globalAlpha = 0.6; context.textAlign = 'center'; context.font = "12px ui-rounded,'PingFang SC',sans-serif";
     context.fillText(entry.createdAtIso.slice(0, 10), width / 2, paperRect.top - 18);
     context.globalAlpha = 1; context.textAlign = 'left';
-    if (entry.text) paintPaperWriting(context, paperRect, entry.text, fontPackageId as Parameters<typeof paintPaperWriting>[3]);
+    if (entry.text) paintPaperWriting(context, paperRect, entry.text, fontPackageId, { fixedFontSize: 16, scrollOffset: detailScroll });
   }
 }
 
@@ -166,6 +172,8 @@ function paintThemes(
 export interface AppOverlayPaintOptions {
   width: number; height: number; safeArea: SafeAreaInsets; page: Exclude<AppPage, 'main'>;
   state: LetterBurningPersistedState; journalScroll: number; selectedEntryIndex: number | null;
+  /** 手帐详情阅读的滚动偏移（像素，向下为正）。 */
+  journalDetailScroll?: number;
   /** 菜单面板展开比例（0–1）：滑入/滑出动画用；缺省视为 1（全开）。 */
   menuSlideRatio?: number;
   background?: CanvasImageSource | null; backgroundComposed?: CanvasImageSource | null;
@@ -176,7 +184,7 @@ export function paintAppOverlay(context: CanvasRenderingContext2D, options: AppO
   const { width, height, safeArea, page, state } = options;
   if (page === 'menu') { paintMenu(context, computeMenuLayout(width, height, safeArea), options.menuSlideRatio ?? 1, width, height); return; }
   paintPaperBackground(context, width, height, options.background, options.backgroundComposed);
-  if (page === 'journal') { paintJournal(context, width, height, safeArea, state.journalEntries, options.journalScroll, options.selectedEntryIndex, state.activeFontPackageId, options.letterPaper); return; }
+  if (page === 'journal') { paintJournal(context, width, height, safeArea, state.journalEntries, options.journalScroll, options.selectedEntryIndex, options.journalDetailScroll ?? 0, state.activeFontPackageId, options.letterPaper); return; }
   if (page === 'themes') { paintThemes(context, width, safeArea, state.activeThemeId, state.postcardMileage, options.letterPaper); return; }
   if (page === 'font-packages') { paintFontPackages(context, width, safeArea, state.activeFontPackageId); return; }
   if (page === 'mileage') {

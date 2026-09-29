@@ -53,8 +53,17 @@ describe('倾诉收好纯状态机', () => {
     expect(stat.state.phase).toBe('stat');
     const idle = advanceUntil(stat.state, 'idle');
     expect(STAT_DURATION_MS).toBe(3000);
-    expect(idle.state.text).toBe('');
+    // 复位保留这封信的原文：抽出后原文字完整可见，可继续编辑
+    expect(idle.state.text).toBe('一句话\n仍是一行');
     expect(idle.effects).toContain('reset');
+  });
+
+  it('跳过统计的直落复位同样保留原文', () => {
+    const back = toBack(finishEditing(setPostcardText(drawnToEdit(), '保留的字')));
+    const tuck = swipeToTuck(back, 650, 480, 200, 800, false);
+    const idle = advanceUntil(tuck.state, 'idle');
+    expect(idle.state.phase).toBe('idle');
+    expect(idle.state.text).toBe('保留的字');
   });
 
   it('抽取位移保留为展开起点，抽出成功只发一次 drawn', () => {

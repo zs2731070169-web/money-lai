@@ -146,6 +146,7 @@ export function paintPaperWriting(
   rect: Rect,
   text: string,
   fontPackageId: FontPackageId = DEFAULT_FONT_PACKAGE_ID,
+  options: { fixedFontSize?: number; scrollOffset?: number } = {},
 ): void {
   // 空文字保持纸面留白：引导语只出现在放大编辑的输入层，不再印到缩小后的信纸上
   if (!text) return;
@@ -153,24 +154,41 @@ export function paintPaperWriting(
   const writingTop = rect.top + rect.height * 0.14;
   const writingWidth = rect.width * 0.68;
   const writingHeight = rect.height * 0.72;
-  // 字号随纸宽自适应：优先 13px 上限，长文逐级收缩到 9-10px 下限保证整封可读
-  const preferredFontSize = Math.max(8, Math.min(13, rect.width * 0.048));
-  const minimumFontSize = Math.max(9, Math.min(10, rect.width * 0.03));
+  // 字号随纸宽自适应：优先 13px 上限，长文逐级收缩到 9-10px 下限保证整封可读；
+  // fixedFontSize 场景（手帐详情阅读）固定可读字号，超长内容由 scrollOffset 滚动浏览
   const lineHeightScale = 1.48;
-  let fontSize = preferredFontSize;
-  let lineHeight = fontSize * lineHeightScale;
-  let lines: string[] = [];
-
-  for (let candidateSize = preferredFontSize; candidateSize >= minimumFontSize; candidateSize -= 1) {
-    context.font = `${candidateSize}px ${fontStackForPackage(fontPackageId)}`;
-    const candidateLines = wrapTextLines(context, text, writingWidth);
-    const candidateLineHeight = candidateSize * lineHeightScale;
-    fontSize = candidateSize;
-    lineHeight = candidateLineHeight;
-    lines = candidateLines;
-    if (candidateLines.length * candidateLineHeight <= writingHeight) break;
+  let fontSize: number;
+  let lineHeight: number;
+  let lines: string[];
+  if (options.fixedFontSize) {
+    fontSize = options.fixedFontSize;
+    lineHeight = fontSize * lineHeightScale;
+    context.font = `${fontSize}px ${fontStackForPackage(fontPackageId)}`;
+    lines = wrapTextLines(context, text, writingWidth);
+  } else {
+    const preferredFontSize = Math.max(8, Math.min(13, rect.width * 0.048));
+    // 极小纸面（网格缩略）时下限不超过首选，保证循环至少执行一次、预览可画
+    const minimumFontSize = Math.min(preferredFontSize, Math.max(9, Math.min(10, rect.width * 0.03)));
+    fontSize = preferredFontSize;
+    lineHeight = fontSize * lineHeightScale;
+    lines = [];
+    for (let candidateSize = preferredFontSize; candidateSize >= minimumFontSize; candidateSize -= 1) {
+      context.font = `${candidateSize}px ${fontStackForPackage(fontPackageId)}`;
+      const candidateLines = wrapTextLines(context, text, writingWidth);
+      const candidateLineHeight = candidateSize * lineHeightScale;
+      fontSize = candidateSize;
+      lineHeight = candidateLineHeight;
+      lines = candidateLines;
+      if (candidateLines.length * candidateLineHeight <= writingHeight) break;
+    }
   }
+  // 滚动偏移只向下滚动（0 .. 内容超出量），滚动浏览时不做字号收缩
+  const contentOverflow = Math.max(0, lines.length * lineHeight - writingHeight);
+  const scrollOffset = Math.max(0, Math.min(options.scrollOffset ?? 0, contentOverflow));
 
+  // save/restore 包裹：multiply 混合与书写区 clip 只在本函数内生效，
+  // 否则会泄漏给后续绘制（手帐详情等直接调用方没有外层 restore 兜底，画面会被反复叠暗成黑带）
+  context.save();
   context.fillStyle = INK;
   context.globalCompositeOperation = 'multiply';
   context.textAlign = 'left';
@@ -181,8 +199,9 @@ export function paintPaperWriting(
   context.rect(writingLeft, writingTop, writingWidth, writingHeight);
   context.clip();
   for (let index = 0; index < lines.length; index += 1) {
-    context.fillText(lines[index], writingLeft, writingTop + index * lineHeight, writingWidth);
+    context.fillText(lines[index], writingLeft, writingTop - scrollOffset + index * lineHeight, writingWidth);
   }
+  context.restore();
 }
 
 function paintCardFace(
@@ -423,8 +442,10 @@ export function paintPageFade(
   width: number,
   height: number,
   progress: number,
+  topOffset: number,
 ): void {
   const ratio = Math.max(0, Math.min(1, progress));
-  if (ratio <= 0) return;
-  context.save(); context.fillStyle = `rgba(247,239,228,${ratio})`; context.fillRect(0, 0, width, height); context.restore();
+  if (ratio <= 0 || height - topOffset <= 0) return;
+  // 只淡入 topOffset 之下（如手帐页眉带）：banner 与页面家具不参与渐隐
+  context.save(); context.fillStyle = `rgba(247,239,228,${ratio})`; context.fillRect(0, topOffset, width, height - topOffset); context.restore();
 }

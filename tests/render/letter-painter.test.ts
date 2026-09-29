@@ -14,6 +14,7 @@ function recordingContext() {
   let globalAlpha = 1;
   let globalCompositeOperation = 'source-over';
   const compositeModes: string[] = [];
+  let saveCount = 0; let restoreCount = 0;
   let currentPath: Array<[number, number]> = [];
   const context = new Proxy({}, {
     get(_target, property) {
@@ -21,6 +22,8 @@ function recordingContext() {
       if (property === 'font') return font;
       if (property === 'globalAlpha') return globalAlpha;
       if (property === 'globalCompositeOperation') return globalCompositeOperation;
+      if (property === 'save') return () => { saveCount += 1; };
+      if (property === 'restore') return () => { restoreCount += 1; globalCompositeOperation = 'source-over'; compositeModes.push('source-over'); };
       if (property === 'stroke') return () => strokes.push(String(strokeStyle));
       if (property === 'fillRect') return (x: number, y: number, width: number, height: number) => fillRects.push([x, y, width, height]);
       if (property === 'fillText') return (value: string, x: number, y: number, maxWidth?: number) => fillTexts.push({ text: value, x, y, maxWidth, font, alpha: globalAlpha });
@@ -43,7 +46,7 @@ function recordingContext() {
       return Reflect.set(target as object, property, value);
     },
   }) as unknown as CanvasRenderingContext2D;
-  return { context, strokes, fillRects, fillTexts, clippedPaths, compositeModes };
+  return { context, strokes, fillRects, fillTexts, clippedPaths, compositeModes, get saveBalance() { return { saveCount, restoreCount }; } };
 }
 
 function imageRecordingContext() {
@@ -62,6 +65,13 @@ function imageRecordingContext() {
 }
 
 describe('倾诉画师', () => {
+  it('书写排版自包含：multiply 与 clip 用 save/restore 包裹，不泄漏给调用方', () => {
+    const recording = recordingContext();
+    paintPaperWriting(recording.context, { left: 20, top: 30, width: 200, height: 300 }, '一段正文');
+    expect(recording.compositeModes).toEqual(['multiply', 'source-over']);
+    expect(recording.saveBalance).toEqual({ saveCount: 1, restoreCount: 1 });
+  });
+
   it('长正文只在信纸书写区绘制可见部分，避免流出纸边', () => {
     const recording = recordingContext();
     const rect = { left: 20, top: 30, width: 200, height: 300 };

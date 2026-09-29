@@ -55,6 +55,11 @@ export function createLetterState(): LetterState {
   };
 }
 
+/** 收好复位：回到信封就位的空闲态，但保留这封信已写入的文字。 */
+function resetToIdleKeepingText(previous: LetterState): LetterState {
+  return { ...createLetterState(), text: previous.text };
+}
+
 export function beginDraw(state: LetterState, pointerId: number, y: number, atMs: number): LetterState {
   if (state.phase !== 'idle') return state;
   return { ...state, phase: 'draw', pointerId, gestureStartY: y, gestureStartMs: atMs, lastY: y, lastMs: atMs };
@@ -187,7 +192,7 @@ export function advanceLetterState(state: LetterState, deltaMs: number, reducedM
       // 收好完成即结算：落库、里程与匿名计数都由编排层在 'save' 上挂接
       effects.push('save');
       if (current.wantsStat) { current = { ...current, phase: 'quiet', elapsedMs: 0 }; continue; }
-      current = createLetterState(); effects.push('reset'); break;
+      current = resetToIdleKeepingText(current); effects.push('reset'); break;
     }
     if (current.phase === 'quiet') {
       const consumedMs = Math.min(remainingMs, QUIET_DURATION_MS - current.elapsedMs);
@@ -196,14 +201,14 @@ export function advanceLetterState(state: LetterState, deltaMs: number, reducedM
       if (elapsedMs < QUIET_DURATION_MS) { current = { ...current, elapsedMs }; break; }
       // 计数已返回且本次满足节奏才显示统计句，否则静默复位（离线降级）
       if (current.wantsStat && current.count !== null) { current = { ...current, phase: 'stat', elapsedMs: 0 }; continue; }
-      current = createLetterState(); effects.push('reset'); break;
+      current = resetToIdleKeepingText(current); effects.push('reset'); break;
     }
     if (current.phase === 'stat') {
       const consumedMs = Math.min(remainingMs, STAT_DURATION_MS - current.elapsedMs);
       const elapsedMs = current.elapsedMs + consumedMs;
       remainingMs -= consumedMs;
       if (elapsedMs < STAT_DURATION_MS) { current = { ...current, elapsedMs }; break; }
-      current = createLetterState(); effects.push('reset'); break;
+      current = resetToIdleKeepingText(current); effects.push('reset'); break;
     }
     break;
   }

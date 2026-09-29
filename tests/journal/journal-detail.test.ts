@@ -46,7 +46,7 @@ describe('手帐详情放大信纸阅览', () => {
     });
 
     // 正文用手写字体逐行绘制（每行至多约 12 字，绝无整段单行压缩）
-    const bodyLines = recording.fillTexts.filter((item) => item.font.includes('Letter'));
+    const bodyLines = recording.fillTexts.filter((item) => item.font.includes('Letter') && item.font.includes('16px'));
     expect(bodyLines.length).toBeGreaterThanOrEqual(10);
     for (const line of bodyLines) {
       expect(Array.from(line.text).length).toBeLessThanOrEqual(13);
@@ -60,6 +60,44 @@ describe('手帐详情放大信纸阅览', () => {
     expect(recording.imageDraws.some((args) => args[0] === letterPaper)).toBe(true);
   });
 
+  it('网格缩略叠加自适应缩小的原文预览（小字号、非 16px）', () => {
+    const state = settleCompletedPostcard(createEmptyLetterLetterState(), {
+      id: 'a', createdAtIso: '2026-09-28T00:00:00.000Z', patternId: 'postcard-01', text: '网格预览的字',
+    });
+    const recording = createRecordingContext();
+    paintAppOverlay(recording.context, {
+      ...VIEWPORT, page: 'journal', state, journalScroll: 0, selectedEntryIndex: null,
+      letterPaper: { id: 'paper' } as unknown as CanvasImageSource,
+    });
+    const preview = recording.fillTexts.filter((item) => item.font.includes('Letter'));
+    expect(preview.length).toBeGreaterThan(0);
+    // 缩影式预览：极小字号（≤5px）、绝不可读也不与详情 16px 混淆
+    const previewSizes = preview.map((item) => Number.parseFloat(item.font));
+    expect(Math.max(...previewSizes)).toBeLessThanOrEqual(5);
+  });
+
+  it('详情正文固定 16px 可读字号，长文随滚动偏移上移浏览', async () => {
+    const bodyText = '流'.repeat(400);
+    const state = settleCompletedPostcard(createEmptyLetterLetterState(), {
+      id: 'a', createdAtIso: '2026-09-28T00:00:00.000Z', patternId: 'postcard-01', text: bodyText,
+    });
+    const capture = (scrollOffset: number) => {
+      const recording = createRecordingContext();
+      paintAppOverlay(recording.context, {
+        ...VIEWPORT, page: 'journal', state, journalScroll: 0, selectedEntryIndex: 0,
+        journalDetailScroll: scrollOffset, letterPaper: { id: 'paper' } as unknown as CanvasImageSource,
+      });
+      return recording.fillTexts.filter((item) => item.font.includes('Letter') && item.font.includes('16px'));
+    };
+    const top = capture(0);
+    const scrolled = capture(200);
+    expect(top.length).toBeGreaterThan(3);
+    expect(top[0].font).toContain('16px');
+    // 滚动后首行 y 上移；字号不变
+    expect(scrolled[0].y).toBeLessThan(top[0].y);
+    expect(scrolled[0].font).toBe(top[0].font);
+  });
+
   it('空记录详情只显示放大的信纸与日期，不绘制正文', () => {
     const state = settleCompletedPostcard(createEmptyLetterLetterState(), {
       id: 'a', createdAtIso: '2026-09-28T00:00:00.000Z', patternId: 'postcard-01', text: '',
@@ -69,7 +107,7 @@ describe('手帐详情放大信纸阅览', () => {
     paintAppOverlay(recording.context, {
       ...VIEWPORT, page: 'journal', state, journalScroll: 0, selectedEntryIndex: 0, letterPaper,
     });
-    expect(recording.fillTexts.some((item) => item.font.includes('Letter'))).toBe(false);
+    expect(recording.fillTexts.some((item) => item.font.includes('Letter') && item.font.includes('16px'))).toBe(false);
     expect(recording.fillTexts.some((item) => item.text === '2026-09-28')).toBe(true);
     expect(recording.imageDraws.some((args) => args[0] === letterPaper)).toBe(true);
   });

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { Game } from '../../src/core/game';
 import { LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, createEmptyLetterLetterState, serializeLetterLetterState, settleCompletedPostcard } from '../../src/core/journal/journal-state';
 import { computeLetterSceneLayout } from '../../src/core/render/letter-layout';
-import { computeFontPackageItemRects, computePageItemRects, journalClearRect } from '../../src/core/render/app-overlay-painter';
+import { computeFontPackageItemRects, computePageItemRects, hitJournalCell, journalClearRect } from '../../src/core/render/app-overlay-painter';
+import { computeJournalLayout } from '../../src/core/journal/journal-layout';
 import { computeMenuLayout } from '../../src/core/render/menu-layout';
 import { FONT_PACKAGES } from '../../src/core/render/letter-font';
 import { LETTER_THEMES } from '../../src/core/render/letter-theme';
@@ -86,13 +87,12 @@ describe('燃信菜单与页面', () => {
     if (!fontRow) throw new Error('菜单缺少字体套餐入口');
     click(platform, fontRow.rect.left + 20, fontRow.rect.top + fontRow.rect.height / 2);
     expect(game.getTestSnapshot().page).toBe('font-packages');
-    click(platform, platform.safe.left + 30, platform.safe.top + 34);
-    expect(game.getTestSnapshot().page).toBe('menu');
+    // 返回直接回主界面：菜单不自动弹出，被挂起的编辑以原草稿续开（取消语义）
     platform.textResult = null;
-    closeMenuAndWait(platform, menu);
-    expect(platform.textRequests[1].initialValue).toBe('保留的草稿\n第二行');
-    await Promise.resolve();
+    click(platform, platform.safe.left + 30, platform.safe.top + 34);
     expect(game.getTestSnapshot().page).toBe('main');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(platform.textRequests[1].initialValue).toBe('保留的草稿\n第二行');
     expect(game.getTestSnapshot().phase).toBe('edit-return');
     for (let index = 0; index < 4; index += 1) platform.tick(100);
     expect(game.getTestSnapshot().phase).toBe('back');
@@ -154,7 +154,7 @@ describe('燃信菜单与页面', () => {
     expect(game.getTestSnapshot().persisted.activeThemeId).toBe('topic1');
     expect(platform.storage.get(LETTER_BURNING_STORAGE_KEY)).toContain('topic1');
     click(platform, platform.safe.left + 30, platform.safe.top + 34);
-    expect(game.getTestSnapshot().page).toBe('menu');
+    expect(game.getTestSnapshot().page).toBe('main');
   });
 
   it('字体套餐页可切换并通过新状态键恢复', async () => {
@@ -169,7 +169,7 @@ describe('燃信菜单与页面', () => {
     expect(game.getTestSnapshot().persisted.activeFontPackageId).toBe('romantic-literary');
     expect(platform.storage.get(LETTER_BURNING_STORAGE_KEY)).toContain('romantic-literary');
     click(platform, platform.safe.left + 30, platform.safe.top + 34);
-    expect(game.getTestSnapshot().page).toBe('menu');
+    expect(game.getTestSnapshot().page).toBe('main');
   });
 
   it('菜单打开后隔离主界面，字体套餐位于第 4 项并可进入各功能页', async () => {
@@ -188,7 +188,8 @@ describe('燃信菜单与页面', () => {
     for (const page of ['mileage', 'themes', 'font-packages', 'achievements'] as const) {
       const row = menu.rows.find((item) => item.action === page); if (!row) continue;
       click(platform, row.rect.left + 20, row.rect.top + row.rect.height / 2); expect(game.getTestSnapshot().page).toBe(page);
-      click(platform, platform.safe.left + 30, platform.safe.top + 34); expect(game.getTestSnapshot().page).toBe('menu');
+      click(platform, platform.safe.left + 30, platform.safe.top + 34); expect(game.getTestSnapshot().page).toBe('main');
+      click(platform, scene.menuRect.left + 24, scene.menuRect.top + 24); expect(game.getTestSnapshot().page).toBe('menu');
     }
   });
 
@@ -274,6 +275,30 @@ describe('燃信菜单与页面', () => {
     await Promise.resolve();
     const state = game.getTestSnapshot().persisted;
     expect(state.journalEntries).toEqual([]); expect(state.collectedPatternIds).toEqual([]); expect(state.postcardMileage).toBe(1); expect(state.achievementIds.length).toBeGreaterThan(0); expect(platform.countCalls).toBe(0);
+  });
+
+  it('手帐详情内滚动浏览不退出，近乎原地点按才关闭', async () => {
+    const { platform, game, menu } = await preparedGame();
+    await openJournalPage(platform, menu);
+    const gridLayout = computeJournalLayout(platform.viewport.width, platform.viewport.height, platform.safe, 1, 0);
+    const firstCell = gridLayout.cells[0];
+    expect(firstCell).toBeDefined();
+    const cellX = firstCell.rect.left + firstCell.rect.width / 2;
+    const cellY = firstCell.rect.top + firstCell.rect.height / 2;
+    const cell = hitJournalCell(platform.viewport.width, platform.viewport.height, platform.safe, 1, 0, cellX, cellY);
+    expect(cell).not.toBeNull();
+    if (cell === null) return;
+    platform.touch('start', cellX, cellY); platform.touch('end', cellX, cellY);
+    expect(game.getTestSnapshot().selectedJournalEntry).toBe(cell);
+    // 上滑浏览长文后抬手：详情保留、滚动量被记录
+    platform.touch('start', cellX, cellY); platform.touch('move', cellX, cellY - 120); platform.touch('move', cellX, cellY - 240); platform.touch('end', cellX, cellY - 240);
+    const scrolled = game.getTestSnapshot();
+    expect(scrolled.selectedJournalEntry).toBe(cell);
+    expect(scrolled.journalDetailScroll).toBeGreaterThan(0);
+    // 近乎原地点按：关闭并重置
+    platform.touch('start', cellX, cellY - 240); platform.touch('move', cellX, cellY - 238); platform.touch('end', cellX, cellY - 238);
+    expect(game.getTestSnapshot().selectedJournalEntry).toBeNull();
+    expect(game.getTestSnapshot().journalDetailScroll).toBe(0);
   });
 
   it('取消清空或落库失败时完整保留原手帐', async () => {

@@ -3,6 +3,7 @@ import { Game, shouldTriggerEnvelopeDrawOut } from '../../src/core/game';
 import { beginDraw, createLetterState, movePointer } from '../../src/core/letter/letter-state';
 import { LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, createEmptyLetterLetterState, serializeLetterLetterState, settleCompletedPostcard, type LetterBurningPersistedState } from '../../src/core/journal/journal-state';
 import { computeLetterSceneLayout, containsPoint } from '../../src/core/render/letter-layout';
+import { computeMenuLayout } from '../../src/core/render/menu-layout';
 import { FakePlatform } from '../helpers/fake-platform';
 
 async function readyGame(textResult: string | null = '原文', initialState?: LetterBurningPersistedState) {
@@ -72,6 +73,38 @@ class HeldInputPlatform extends FakePlatform {
 }
 
 describe('信封到收好的端到端链路', () => {
+  it('收好复位保留原文：再次抽出进入编辑以原文为初始内容，手帐往返不清', async () => {
+    const { game, platform, layout } = await readyGame('信封里保留的原话');
+    // 抽出→编辑（输入层即时以 textResult 确认）→上滑收好→推进到复位
+    await drawAndFlip(platform, layout);
+    await Promise.resolve(); await Promise.resolve();
+    for (let index = 0; index < 4; index += 1) platform.tick(100);
+    swipeUpToTuck(platform, layout);
+    for (let index = 0; index < 60; index += 1) platform.tick(100);
+    await Promise.resolve();
+    expect(game.getTestSnapshot().phase).toBe('idle');
+
+    // 打开手帐再返回：原文不清
+    const scene = computeLetterSceneLayout(platform.viewport.width, platform.viewport.height, platform.safe);
+    platform.touch('start', scene.menuRect.left + 24, scene.menuRect.top + 24); platform.touch('end', scene.menuRect.left + 24, scene.menuRect.top + 24);
+    const menu = computeMenuLayout(platform.viewport.width, platform.viewport.height, platform.safe);
+    const journalRow = menu.rows.find((row) => row.action === 'journal');
+    if (!journalRow) throw new Error('菜单缺少手帐入口');
+    platform.touch('start', journalRow.rect.left + 20, journalRow.rect.top + journalRow.rect.height / 2);
+    platform.touch('end', journalRow.rect.left + 20, journalRow.rect.top + journalRow.rect.height / 2);
+    for (let index = 0; index < 7; index += 1) platform.tick(100);
+    await Promise.resolve();
+    expect(game.getTestSnapshot().page).toBe('journal');
+    platform.touch('start', platform.safe.left + 30, platform.safe.top + 34);
+    platform.touch('end', platform.safe.left + 30, platform.safe.top + 34);
+    expect(game.getTestSnapshot().page).toBe('main');
+
+    // 再次抽出：进入编辑时输入层以原文为初始内容
+    await drawAndFlip(platform, layout);
+    await Promise.resolve(); await Promise.resolve();
+    expect(platform.textRequests.at(-1)?.initialValue).toBe('信封里保留的原话');
+  });
+
   it('抽取音效在首次小步上移时也能触发，不要求单帧达到 1px', () => {
     const drawing = beginDraw(createLetterState(), 1, 700, 0);
     const moved = movePointer(drawing, 1, 699.5, 16);

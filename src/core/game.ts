@@ -1,7 +1,7 @@
 import { AudioEngine } from './audio/engine';
 import { BACK_PROMPTS, COPY } from './content/copy';
 import { shouldDisplayBurnCount } from './count/burn-count';
-import { computeJournalLayout, maximumJournalScroll } from './journal/journal-layout';
+import { JOURNAL_HEADER_BAND_HEIGHT, computeJournalLayout, maximumJournalScroll } from './journal/journal-layout';
 import {
   LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, activateFontPackage, activateLetterTheme,
   clearJournal, createEmptyLetterLetterState, parseLetterLetterState,
@@ -28,6 +28,8 @@ const REDUCED_TRANSITION_DURATION_MS = 200;
 const MENU_PANEL_SLIDE_MS = 240;
 const REDUCED_MENU_PANEL_SLIDE_MS = 80;
 const CLEAR_JOURNAL_DURATION_MS = 2700;
+/** 清空渐隐满幅落库后的奶油层淡出时长：与渐隐同色系收尾，避免硬切。 */
+const CLEAR_JOURNAL_REVEAL_MS = 260;
 /** 视口尺寸稳定等待时长：resize/软键盘动画期间沿用旧合成面过渡。 */
 const BACKGROUND_COMPOSITION_SETTLE_MS = 180;
 
@@ -90,6 +92,8 @@ export class Game {
   private touchStart: TouchStart | null = null;
   private lastFrameTimestamp: number | null = null;
   private journalScroll = 0;
+  /** 手帐详情阅读滚动（像素）；打开/关闭详情时归零。 */
+  private journalDetailScroll = 0;
   private selectedJournalEntry: number | null = null;
   private menuGlowStartedAt: number | null = null;
   /** 菜单面板滑入/滑出动画起点；null 表示不在动画中（面板全开）。 */
@@ -98,6 +102,10 @@ export class Game {
   private menuPanelClosing = false;
   private transitionElapsedMs: number | null = null;
   private clearJournalElapsedMs: number | null = null;
+  /** 渐隐满幅后的落库是否已发起（保持期防重复写库）。 */
+  private clearJournalWriteStarted = false;
+  /** 落库落定后奶油层淡出的起点；null 表示无收尾。 */
+  private clearJournalRevealAtMs: number | null = null;
   private notice: { text: string; until: number } | null = null;
   private savingCycle = false;
   private cycleId = 0;
@@ -211,7 +219,7 @@ export class Game {
   }
 
   private handleTouch(phase: TouchPhase, point: NormalizedTouchPoint): void {
-    if (!this.ready || this.inputActive || this.transitionElapsedMs !== null || this.clearJournalElapsedMs !== null) return;
+    if (!this.ready || this.inputActive || this.transitionElapsedMs !== null || this.clearJournalElapsedMs !== null || this.clearJournalRevealAtMs !== null) return;
     this.unlockAudioFromGesture();
     const now = this.platform.nowMilliseconds();
     if (this.page !== 'main') { this.handleOverlayTouch(phase, point, now); return; }
@@ -292,6 +300,12 @@ export class Game {
     const viewport = this.platform.getLogicalViewportSize(); const safe = this.platform.getSafeAreaInsets();
     if (phase === 'start') { this.touchStart = { x: point.positionX, y: point.positionY, atMs: now, lastY: point.positionY }; return; }
     const start = this.touchStart; if (!start) return;
+    if (phase === 'move' && this.page === 'journal' && this.selectedJournalEntry !== null) {
+      // 详情阅读：上下滑动浏览长文，向下滚为正
+      this.journalDetailScroll = Math.max(0, this.journalDetailScroll + (point.positionY - start.lastY) * -1);
+      start.lastY = point.positionY;
+      return;
+    }
     if (phase === 'move' && this.page === 'journal' && this.selectedJournalEntry === null) {
       const delta = start.lastY - point.positionY; start.lastY = point.positionY;
       const currentLayout = computeJournalLayout(viewport.width, viewport.height, safe, this.persisted.journalEntries.length, this.journalScroll);
@@ -324,12 +338,22 @@ export class Game {
       }
       return;
     }
-    if (containsPoint(pageBackRect(safe), point.positionX, point.positionY)) { this.openMenuPanel(); this.selectedJournalEntry = null; return; }
+    // 子页返回直接回主界面：菜单是临时启动器而非常驻父级，返回时不得自动弹出
+    if (containsPoint(pageBackRect(safe), point.positionX, point.positionY)) {
+      this.page = 'main'; this.menuPanelStartedAt = null; this.menuPanelClosing = false; this.selectedJournalEntry = null;
+      if (this.letter.phase === 'edit') void this.editPostcardText();
+      return;
+    }
     if (this.page === 'journal') {
-      if (this.selectedJournalEntry !== null) { this.selectedJournalEntry = null; return; }
+      // 详情内抬手：只有近乎原地的点按才退出；长文滚动浏览（位移大）不关闭
+      if (this.selectedJournalEntry !== null) {
+        const detailDragDistance = Math.hypot(point.positionX - start.x, point.positionY - start.y);
+        if (detailDragDistance < 10) { this.selectedJournalEntry = null; this.journalDetailScroll = 0; }
+        return;
+      }
       // 页眉带右上「清空整本手帐」入口（空手帐时由确认流程自然拦截）
       if (containsPoint(journalClearRect(viewport.width, safe), point.positionX, point.positionY)) { void this.requestClearJournal(); return; }
-      this.selectedJournalEntry = hitJournalCell(viewport.width, viewport.height, safe, this.persisted.journalEntries.length, this.journalScroll, point.positionX, point.positionY); return;
+      this.selectedJournalEntry = hitJournalCell(viewport.width, viewport.height, safe, this.persisted.journalEntries.length, this.journalScroll, point.positionX, point.positionY); this.journalDetailScroll = 0; return;
     }
     if (this.page === 'themes') {
       const rects = computePageItemRects(viewport.width, safe, LETTER_THEMES.length); const index = rects.findIndex((rect) => containsPoint(rect, point.positionX, point.positionY));
@@ -395,9 +419,18 @@ export class Game {
       if (this.platform.nowMilliseconds() - this.menuPanelStartedAt >= durationMs) this.finishMenuPanelClose();
     }
     if (this.clearJournalElapsedMs !== null) {
-      this.clearJournalElapsedMs += Math.min(delta, 100);
-      if (this.clearJournalElapsedMs >= CLEAR_JOURNAL_DURATION_MS) { this.clearJournalElapsedMs = null; const next = clearJournal(this.persisted); void this.platform.writePersistentValue(LETTER_BURNING_STORAGE_KEY, serializeLetterLetterState(next)).then((saved) => { if (saved) { this.persisted = next; this.journalScroll = 0; this.selectedJournalEntry = null; } else this.showNotice(COPY.saveFailed); }); }
+      // 渐隐满幅后钉在终点保持：奶油层不提前撤下，等落库落定再淡出，杜绝旧网格（含右上入口）整帧回闪
+      this.clearJournalElapsedMs = Math.min(CLEAR_JOURNAL_DURATION_MS, this.clearJournalElapsedMs + Math.min(delta, 100));
+      if (this.clearJournalElapsedMs >= CLEAR_JOURNAL_DURATION_MS && !this.clearJournalWriteStarted) {
+        this.clearJournalWriteStarted = true;
+        const next = clearJournal(this.persisted);
+        void this.platform.writePersistentValue(LETTER_BURNING_STORAGE_KEY, serializeLetterLetterState(next)).then((saved) => {
+          if (saved) { this.persisted = next; this.journalScroll = 0; this.selectedJournalEntry = null; } else this.showNotice(COPY.saveFailed);
+          this.clearJournalElapsedMs = null; this.clearJournalWriteStarted = false; this.clearJournalRevealAtMs = this.platform.nowMilliseconds();
+        });
+      }
     }
+    if (this.clearJournalRevealAtMs !== null && this.platform.nowMilliseconds() - this.clearJournalRevealAtMs >= CLEAR_JOURNAL_REVEAL_MS) this.clearJournalRevealAtMs = null;
     const update = advanceLetterState(this.letter, delta, this.reducedMotion); this.letter = update.state; this.consumeEffects(update.effects); this.audio.updateBgm(); this.render(); this.platform.requestFrame((nextTimestamp) => this.frame(nextTimestamp));
   }
 
@@ -470,13 +503,16 @@ export class Game {
     // 输入面板激活期间书写内容由输入层独占：信纸不再画引导语与旧文字，避免透明面板下叠印
     const paperWritingHidden = this.inputActive;
     paintLetterScene(context, { width: viewport.width, height: viewport.height, layout, state: paperWritingHidden ? { ...this.letter, text: '' } : this.letter, fontPackageId: this.persisted.activeFontPackageId, menuGlowProgress: glowProgress, reducedMotion: this.reducedMotion, assets: this.letterSceneAssets });
-    if (this.page !== 'main') paintAppOverlay(context, { width: viewport.width, height: viewport.height, safeArea: safe, page: this.page, state: this.persisted, journalScroll: this.journalScroll, selectedEntryIndex: this.selectedJournalEntry, menuSlideRatio: this.menuPanelSlideRatio(), background: this.letterSceneAssets.background, backgroundComposed: this.letterSceneAssets.backgroundComposed, openEnvelope: this.letterSceneAssets.openEnvelope, letterPaper: this.letterSceneAssets.letterPaper });
+    if (this.page !== 'main') paintAppOverlay(context, { width: viewport.width, height: viewport.height, safeArea: safe, page: this.page, state: this.persisted, journalScroll: this.journalScroll, selectedEntryIndex: this.selectedJournalEntry, journalDetailScroll: this.journalDetailScroll, menuSlideRatio: this.menuPanelSlideRatio(), background: this.letterSceneAssets.background, backgroundComposed: this.letterSceneAssets.backgroundComposed, openEnvelope: this.letterSceneAssets.openEnvelope, letterPaper: this.letterSceneAssets.letterPaper });
     if (this.transitionElapsedMs !== null) { const durationMs = this.reducedMotion ? REDUCED_TRANSITION_DURATION_MS : TRANSITION_DURATION_MS; const ratio = Math.min(1, this.transitionElapsedMs / durationMs); context.fillStyle = `rgba(78,61,49,${0.38 * Math.sin(ratio * Math.PI)})`; context.fillRect(0, 0, viewport.width, viewport.height); }
-    if (this.clearJournalElapsedMs !== null) paintPageFade(context, viewport.width, viewport.height, Math.min(1, this.clearJournalElapsedMs / CLEAR_JOURNAL_DURATION_MS));
+    // 清空渐隐只覆盖页眉带之下的网格区：banner（标题/返回/右上入口）全程保持原样
+    const journalFadeTopOffset = safe.top + JOURNAL_HEADER_BAND_HEIGHT;
+    if (this.clearJournalElapsedMs !== null) paintPageFade(context, viewport.width, viewport.height, Math.min(1, this.clearJournalElapsedMs / CLEAR_JOURNAL_DURATION_MS), journalFadeTopOffset);
+    else if (this.clearJournalRevealAtMs !== null) paintPageFade(context, viewport.width, viewport.height, 1 - Math.min(1, (this.platform.nowMilliseconds() - this.clearJournalRevealAtMs) / CLEAR_JOURNAL_REVEAL_MS), journalFadeTopOffset);
     if (this.notice && this.notice.until > this.platform.nowMilliseconds()) { context.save(); context.fillStyle = 'rgba(73,88,83,.82)'; context.font = "13px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center'; context.fillText(this.notice.text, viewport.width / 2, viewport.height - safe.bottom - 34); context.restore(); } else if (this.notice) this.notice = null;
   }
 
   getTestSnapshot() {
-    return { ready: this.ready, phase: this.letter.phase, page: this.page, inputActive: this.inputActive, patternId: this.patternId, persisted: structuredClone(this.persisted), clearJournalActive: this.clearJournalElapsedMs !== null };
+    return { ready: this.ready, phase: this.letter.phase, page: this.page, inputActive: this.inputActive, patternId: this.patternId, persisted: structuredClone(this.persisted), clearJournalActive: this.clearJournalElapsedMs !== null, selectedJournalEntry: this.selectedJournalEntry, journalDetailScroll: this.journalDetailScroll };
   }
 }

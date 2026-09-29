@@ -8,11 +8,11 @@ import {
   serializeLetterBurningState, settleCompletedPostcard, type LetterBurningPersistedState,
 } from './journal/journal-state';
 import {
-  BURN_DURATION_MS, MAX_LETTER_TEXT_LENGTH, advanceBurningState, beginDraw, beginEditing, beginThrow, createBurningState,
-  endDraw, endThrow, finishEditing, movePointer, resolveCount, setPostcardText,
+  MAX_LETTER_TEXT_LENGTH, advanceBurningState, beginDraw, beginEditing, createBurningState,
+  endDraw, finishEditing, movePointer, resolveCount, setPostcardText,
   type BurningEffect, type BurningState,
 } from './letter/burning-state';
-import { DEFAULT_POSTCARD_ID, chooseNextPostcardId, postcardById } from './letter/postcard-catalog';
+import { DEFAULT_POSTCARD_ID, chooseNextPostcardId } from './letter/postcard-catalog';
 import { FONT_PACKAGES, fontStackForPackage } from './render/letter-font';
 import { LETTER_THEMES, letterThemeById } from './render/letter-theme';
 import type { NormalizedTouchPoint, PlatformAdapter, PrimaryCanvas, TouchPhase } from './platform';
@@ -51,8 +51,8 @@ export interface GameOptions {
 interface TouchStart { x: number; y: number; atMs: number; lastY: number }
 
 function canOpenMenu(phase: BurningState['phase']): boolean {
-  return phase === 'idle' || phase === 'unfold' || phase === 'front'
-    || phase === 'edit' || phase === 'edit-return' || phase === 'back' || phase === 'rebound';
+  // 收好/安静/统计期间不可打断结算时序
+  return phase === 'idle' || phase === 'unfold' || phase === 'edit' || phase === 'edit-return' || phase === 'back';
 }
 
 /** 抽取音效只看是否出现了新的有效上移，不把单帧位移粗暴舍入到 1px。 */
@@ -102,7 +102,6 @@ export class Game {
   private notice: { text: string; until: number } | null = null;
   private savingCycle = false;
   private cycleId = 0;
-  private readonly burnGeometry = createBurnGeometryBuffer();
   private readonly clearBurnGeometry = createBurnGeometryBuffer();
 
   private readonly envelopeDrawOutAudioUrl: string | null;
@@ -224,8 +223,6 @@ export class Game {
       if (containsPoint(layout.menuRect, point.positionX, point.positionY) && canOpenMenu(this.burning.phase)) return;
       if (this.burning.phase === 'idle' && containsPoint(layout.envelopeGrabRect, point.positionX, point.positionY)) {
         this.burning = beginDraw(this.burning, point.pointerId, point.positionY, now);
-      } else if (this.burning.phase === 'back' && containsPoint(layout.cardRect, point.positionX, point.positionY)) {
-        this.burning = beginThrow(this.burning, point.pointerId, point.positionY, now);
       }
       return;
     }
@@ -245,21 +242,13 @@ export class Game {
       if (shouldTriggerEnvelopeDrawOut(previousState, this.burning)) this.audio.envelopeDrawOutPulse();
       const update = endDraw(this.burning, point.pointerId); this.burning = update.state; this.audio.finishEnvelopeDrawOutGesture(); this.consumeEffects(update.effects); return;
     }
-    if (this.burning.phase === 'front') {
-      if (containsPoint(layout.cardRect, point.positionX, point.positionY)) {
+    if (this.burning.phase === 'back') {
+      // 展示位点按信纸重新进入编辑（收好由「确认」触发，不再有甩出手势）
+      const distance = Math.hypot(point.positionX - start.x, point.positionY - start.y);
+      if (distance < 10 && now - start.atMs < 450 && containsPoint(layout.cardRect, point.positionX, point.positionY)) {
         this.burning = beginEditing(this.burning);
         void this.editPostcardText();
       }
-      return;
-    }
-    if (this.burning.phase === 'drag') {
-      const distance = Math.hypot(point.positionX - start.x, point.positionY - start.y);
-      if (distance < 10 && now - start.atMs < 450) {
-        this.burning = beginEditing(this.burning); void this.editPostcardText(); return;
-      }
-      const wantsStat = shouldDisplayBurnCount(this.persisted.statCadenceCount + 1);
-      const update = endThrow(this.burning, point.pointerId, point.positionY, now, viewport.height, wantsStat);
-      this.burning = update.state; this.consumeEffects(update.effects);
     }
   }
 
@@ -267,6 +256,7 @@ export class Game {
     if (this.inputActive || this.burning.phase !== 'edit' || this.page !== 'main') return;
     this.inputActive = true;
     let pausedForMenu = false;
+    let confirmed = false;
     try {
       const viewport = this.platform.getLogicalViewportSize();
       const layout = computeLetterSceneLayout(viewport.width, viewport.height, this.platform.getSafeAreaInsets());
@@ -281,10 +271,17 @@ export class Game {
         this.burning = setPostcardText(this.burning, result.draft);
         pausedForMenu = true;
         this.openMenuPanel();
-      } else if (result !== null) this.burning = setPostcardText(this.burning, result);
+      } else if (result !== null) {
+        this.burning = setPostcardText(this.burning, result);
+        confirmed = true;
+      }
     } finally {
       this.inputActive = false;
-      if (!pausedForMenu) this.burning = finishEditing(this.burning);
+      if (!pausedForMenu) {
+        // 确认即一次倾诉完成：回缩后折回入袋并按统计节奏收好；取消停在展示位
+        const wantsStat = confirmed && shouldDisplayBurnCount(this.persisted.statCadenceCount + 1);
+        this.burning = finishEditing(this.burning, confirmed, wantsStat);
+      }
     }
   }
 
@@ -365,9 +362,7 @@ export class Game {
   private consumeEffects(effects: readonly BurningEffect[]): void {
     for (const effect of effects) {
       if (effect === 'requestEdit') void this.editPostcardText();
-      else if (effect === 'ignite') this.audio.ignite();
-      else if (effect === 'extinguish') this.audio.extinguish();
-      else if (effect === 'save') void this.completePostcard();
+      else if (effect === 'save') { this.audio.extinguish(); void this.completePostcard(); }
       else if (effect === 'reset') { this.cycleId += 1; this.savingCycle = false; this.chooseNextCard(); }
     }
   }
@@ -378,9 +373,11 @@ export class Game {
     const entry = { id: `${Date.now().toString(36)}-${Math.floor(this.platform.randomUnit() * 1e9).toString(36)}`, createdAtIso: new Date().toISOString(), patternId: this.patternId, text: this.burning.text };
     const next = settleCompletedPostcard(this.persisted, entry);
     const saved = await this.platform.writePersistentValue(LETTER_BURNING_STORAGE_KEY, serializeLetterBurningState(next));
-    if (cycle !== this.cycleId) return;
-    if (saved) { this.persisted = next; this.menuGlowStartedAt = this.platform.nowMilliseconds(); }
-    else this.showNotice(COPY.saveFailed);
+    // 直落 idle 路径 save 与 reset 同批到达：落库结果必须生效，周期守卫只收窄即时反馈与状态回写
+    if (saved) {
+      this.persisted = next;
+      if (cycle === this.cycleId) this.menuGlowStartedAt = this.platform.nowMilliseconds();
+    } else if (cycle === this.cycleId) this.showNotice(COPY.saveFailed);
     const count = await this.platform.incrementAnonymousBurnCount();
     if (cycle === this.cycleId) this.burning = resolveCount(this.burning, count);
   }
@@ -469,10 +466,10 @@ export class Game {
     if (glowProgress >= 1) this.menuGlowStartedAt = null;
     // 输入面板激活期间书写内容由输入层独占：信纸不再画引导语与旧文字，避免透明面板下叠印
     const paperWritingHidden = this.inputActive;
-    paintLetterScene(context, { width: viewport.width, height: viewport.height, layout, state: paperWritingHidden ? { ...this.burning, text: '' } : this.burning, fontPackageId: this.persisted.activeFontPackageId, burnGeometry: this.burnGeometry, burnSeed: postcardById(this.patternId).burnSeed + this.persisted.postcardMileage, menuGlowProgress: glowProgress, reducedMotion: this.reducedMotion, assets: this.letterSceneAssets });
+    paintLetterScene(context, { width: viewport.width, height: viewport.height, layout, state: paperWritingHidden ? { ...this.burning, text: '' } : this.burning, fontPackageId: this.persisted.activeFontPackageId, menuGlowProgress: glowProgress, reducedMotion: this.reducedMotion, assets: this.letterSceneAssets });
     if (this.page !== 'main') paintAppOverlay(context, { width: viewport.width, height: viewport.height, safeArea: safe, page: this.page, state: this.persisted, journalScroll: this.journalScroll, selectedEntryIndex: this.selectedJournalEntry, menuSlideRatio: this.menuPanelSlideRatio(), background: this.letterSceneAssets.background, backgroundComposed: this.letterSceneAssets.backgroundComposed, openEnvelope: this.letterSceneAssets.openEnvelope, letterPaper: this.letterSceneAssets.letterPaper });
     if (this.transitionElapsedMs !== null) { const durationMs = this.reducedMotion ? REDUCED_TRANSITION_DURATION_MS : TRANSITION_DURATION_MS; const ratio = Math.min(1, this.transitionElapsedMs / durationMs); context.fillStyle = `rgba(78,61,49,${0.38 * Math.sin(ratio * Math.PI)})`; context.fillRect(0, 0, viewport.width, viewport.height); }
-    if (this.clearJournalElapsedMs !== null) paintPageBurn(context, viewport.width, viewport.height, Math.min(1, this.clearJournalElapsedMs / BURN_DURATION_MS), this.clearBurnGeometry, 104729);
+    if (this.clearJournalElapsedMs !== null) paintPageBurn(context, viewport.width, viewport.height, Math.min(1, this.clearJournalElapsedMs / CLEAR_JOURNAL_DURATION_MS), this.clearBurnGeometry, 104729);
     if (this.notice && this.notice.until > this.platform.nowMilliseconds()) { context.save(); context.fillStyle = 'rgba(73,88,83,.82)'; context.font = "13px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center'; context.fillText(this.notice.text, viewport.width / 2, viewport.height - safe.bottom - 34); context.restore(); } else if (this.notice) this.notice = null;
   }
 

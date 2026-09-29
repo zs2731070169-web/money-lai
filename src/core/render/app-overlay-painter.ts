@@ -9,13 +9,13 @@ import { containsPoint } from './letter-layout';
 import type { AppPage, MenuLayout } from './menu-layout';
 import { computeMenuLayout } from './menu-layout';
 import { LETTER_THEMES } from './letter-theme';
-import { paintLetterPaperAsset, paintPaperBackground } from './letter-painter';
+import { paintLetterPaperAsset, paintPaperBackground, paintPaperWriting } from './letter-painter';
 
 const INK = '#495853';
 const LETTER_RATIO = 491 / 733;
 
 export function pageBackRect(safe: SafeAreaInsets): Rect {
-  return { left: safe.left + 14, top: safe.top + 10, width: 60, height: 48 };
+  return { left: safe.left + 14, top: safe.top + 10, width: 68, height: 48 };
 }
 
 export function computePageItemRects(width: number, safe: SafeAreaInsets, count: number): Rect[] {
@@ -30,7 +30,7 @@ export function computeFontPackageItemRects(width: number, safe: SafeAreaInsets,
 
 function title(context: CanvasRenderingContext2D, label: string, width: number, safe: SafeAreaInsets): void {
   context.fillStyle = INK; context.textAlign = 'center'; context.textBaseline = 'middle'; context.font = "24px ui-rounded,'PingFang SC',sans-serif"; context.fillText(label, width / 2, safe.top + 38);
-  context.textAlign = 'left'; context.font = "16px ui-rounded,'PingFang SC',sans-serif"; context.fillText(COPY.backLabel, safe.left + 19, safe.top + 38);
+  context.textAlign = 'left'; context.font = "20px ui-rounded,'PingFang SC',sans-serif"; context.fillText(COPY.backLabel, safe.left + 19, safe.top + 38);
 }
 
 function paintMenu(context: CanvasRenderingContext2D, layout: MenuLayout, slideRatio: number, viewportWidth: number, viewportHeight: number): void {
@@ -72,6 +72,7 @@ function paintJournal(
   entries: readonly JournalEntry[],
   scroll: number,
   selectedEntryIndex: number | null,
+  fontPackageId: string,
   letterPaper?: CanvasImageSource | null,
 ): void {
   const layout = computeJournalLayout(width, height, safe, entries.length, scroll); title(context, COPY.journal, width, safe);
@@ -89,16 +90,18 @@ function paintJournal(
   context.fillStyle = INK; context.globalAlpha = entries.length > 0 ? 0.62 : 0.3; context.font = "13px ui-rounded,'PingFang SC',sans-serif";
   context.fillText(COPY.clearJournal, clearEntry.left + clearEntry.width / 2, clearEntry.top + clearEntry.height / 2); context.globalAlpha = 1;
   if (selectedEntryIndex !== null && entries[selectedEntryIndex]) {
-    const entry = entries[selectedEntryIndex]; const detail = { left: 28, top: safe.top + 92, width: width - 56, height: Math.min(440, height - safe.top - safe.bottom - 128) };
+    // 点开后放大整封信纸：文字用与书写态相同的换行/字体/混合排版，原格式清楚可读
+    const entry = entries[selectedEntryIndex];
     context.fillStyle = 'rgba(65,49,39,.28)'; context.fillRect(0, safe.top + 72, width, height);
-    context.fillStyle = '#F8F0E4'; context.shadowColor = 'rgba(65,49,39,.2)'; context.shadowBlur = 22; context.fillRect(detail.left, detail.top, detail.width, detail.height); context.shadowColor = 'transparent';
-    const paperArea = { left: detail.left + 22, top: detail.top + 18, width: detail.width - 44, height: Math.min(260, detail.height * 0.64) };
-    const paperRect = containLetter(paperArea, 0);
+    const available = { left: 24, top: safe.top + 116, width: width - 48, height: Math.max(200, height - safe.top - safe.bottom - 176) };
+    const paperRect = containLetter(available, 0);
+    context.save(); context.shadowColor = 'rgba(65,49,39,.2)'; context.shadowBlur = 22;
     paintLetterPaperAsset(context, paperRect, letterPaper);
-    const textTop = paperArea.top + paperArea.height + 14;
-    context.fillStyle = INK; context.textAlign = 'left'; context.globalAlpha = 0.7; context.font = "13px ui-rounded,'PingFang SC',sans-serif"; context.fillText(entry.createdAtIso.slice(0, 10), detail.left + 24, textTop);
-    if (entry.text) { context.globalAlpha = 0.92; context.font = "16px ui-rounded,'PingFang SC',sans-serif"; context.fillText(entry.text, detail.left + 24, textTop + 34, detail.width - 48); }
-    context.globalAlpha = 1;
+    context.restore();
+    context.fillStyle = INK; context.globalAlpha = 0.6; context.textAlign = 'center'; context.font = "12px ui-rounded,'PingFang SC',sans-serif";
+    context.fillText(entry.createdAtIso.slice(0, 10), width / 2, paperRect.top - 18);
+    context.globalAlpha = 1; context.textAlign = 'left';
+    if (entry.text) paintPaperWriting(context, paperRect, entry.text, fontPackageId as Parameters<typeof paintPaperWriting>[3]);
   }
 }
 
@@ -170,7 +173,7 @@ export function paintAppOverlay(context: CanvasRenderingContext2D, options: AppO
   const { width, height, safeArea, page, state } = options;
   if (page === 'menu') { paintMenu(context, computeMenuLayout(width, height, safeArea), options.menuSlideRatio ?? 1, width, height); return; }
   paintPaperBackground(context, width, height, options.background, options.backgroundComposed);
-  if (page === 'journal') { paintJournal(context, width, height, safeArea, state.journalEntries, options.journalScroll, options.selectedEntryIndex, options.letterPaper); return; }
+  if (page === 'journal') { paintJournal(context, width, height, safeArea, state.journalEntries, options.journalScroll, options.selectedEntryIndex, state.activeFontPackageId, options.letterPaper); return; }
   if (page === 'themes') { paintThemes(context, width, safeArea, state.activeThemeId, state.postcardMileage, options.letterPaper); return; }
   if (page === 'font-packages') { paintFontPackages(context, width, safeArea, state.activeFontPackageId); return; }
   if (page === 'mileage') {

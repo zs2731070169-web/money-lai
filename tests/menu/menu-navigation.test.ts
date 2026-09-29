@@ -98,11 +98,12 @@ describe('燃信菜单与页面', () => {
     expect(game.getTestSnapshot().phase).toBe('back');
   });
 
-  it('信纸回缩和背面可打开菜单，燃烧过程不可由菜单打断', async () => {
+  it('信纸回缩和展示位可打开菜单，收好过程不可由菜单打断', async () => {
     const { platform, game, scene } = await readyMainScene();
+    platform.textResult = null;
     extractPaper(platform, scene);
     for (let index = 0; index < 5; index += 1) platform.tick(100);
-    await Promise.resolve();
+    await Promise.resolve(); await Promise.resolve();
     expect(game.getTestSnapshot().phase).toBe('edit-return');
     const menu = computeMenuLayout(platform.viewport.width, platform.viewport.height, platform.safe);
     click(platform, scene.menuRect.left + 24, scene.menuRect.top + 24);
@@ -114,14 +115,19 @@ describe('燃信菜单与页面', () => {
     expect(game.getTestSnapshot().page).toBe('menu');
     closeMenuAndWait(platform, menu);
 
+    // 展示位点按重新进入编辑并确认，收好时序中菜单点按被忽略
     const cardX = scene.cardRect.left + scene.cardRect.width / 2;
     const cardY = scene.cardRect.top + scene.cardRect.height / 2;
-    platform.touch('start', cardX, cardY); platform.now += 200;
-    platform.touch('move', cardX, cardY - 180); platform.touch('end', cardX, cardY - 180);
-    expect(game.getTestSnapshot().phase).toBe('burn');
+    platform.textResult = '心事';
+    click(platform, cardX, cardY);
+    await Promise.resolve(); await Promise.resolve();
+    for (let index = 0; index < 6; index += 1) platform.tick(100);
+    expect(game.getTestSnapshot().phase).toBe('settle');
     click(platform, scene.menuRect.left + 24, scene.menuRect.top + 24);
     expect(game.getTestSnapshot().page).toBe('main');
-    expect(game.getTestSnapshot().phase).toBe('burn');
+    expect(game.getTestSnapshot().phase).toBe('settle');
+    for (let index = 0; index < 12; index += 1) platform.tick(100);
+    expect(game.getTestSnapshot().phase).toBe('quiet');
   });
 
   it('主题页成套选择：唯一主题默认启用，菜单不再提供图鉴与双槽外观', () => {

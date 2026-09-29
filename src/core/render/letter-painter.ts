@@ -1,15 +1,17 @@
 import { COPY } from '../content/copy';
 import type { BurningState } from '../letter/burning-state';
-import { EDIT_ENTER_DURATION_MS, EDIT_RETURN_DURATION_MS, REDUCED_EDIT_ENTER_DURATION_MS, REDUCED_EDIT_RETURN_DURATION_MS, REDUCED_UNFOLD_DURATION_MS, UNFOLD_DURATION_MS, afterglowVisual, burnProgress, statAlpha } from '../letter/burning-state';
+import { EDIT_ENTER_DURATION_MS, EDIT_RETURN_DURATION_MS, REDUCED_EDIT_ENTER_DURATION_MS, REDUCED_EDIT_RETURN_DURATION_MS, REDUCED_SETTLE_DURATION_MS, REDUCED_UNFOLD_DURATION_MS, SETTLE_DURATION_MS, UNFOLD_DURATION_MS, statAlpha } from '../letter/burning-state';
 import { ENVELOPE_ASSET_ANCHORS, type LetterSceneLayout, type Rect } from './letter-layout';
 import type { BurnGeometryBuffer } from './burn-geometry';
 import { updateBurnGeometryInto } from './burn-geometry';
 import { BACKGROUND_SOURCE_HEIGHT as BACKGROUND_PIXEL_HEIGHT, BACKGROUND_SOURCE_WIDTH as BACKGROUND_PIXEL_WIDTH } from './background-composition';
 import { DEFAULT_FONT_PACKAGE_ID, fontStackForPackage, type FontPackageId } from './letter-font';
 
-export const OUTER_FLAME_COLOR = '#D85A30';
-export const INNER_FLAME_COLOR = '#BA7517';
 const INK = '#354940';
+/** 手帐整本清空的焦边色（主循环燃烧已移除，仅清空转场沿用至纸面渐隐替换）。 */
+const PAGE_BURN_EDGE_COLOR = '#49372F';
+const PAGE_BURN_FLAME_COLOR = '#D85A30';
+const PAGE_BURN_CORE_COLOR = '#BA7517';
 export interface LetterSceneAssets {
   background?: CanvasImageSource | null;
   /** 竖屏下按视口离屏合成的背景（视口比例、整幅拉伸绘制），优先于 background。 */
@@ -157,14 +159,10 @@ export function paintPaperWriting(
   const writingTop = rect.top + rect.height * 0.14;
   const writingWidth = rect.width * 0.68;
   const writingHeight = rect.height * 0.72;
-  const isPrompt = !text;
-  const preferredFontSize = isPrompt
-    ? Math.max(11, Math.min(17, rect.width * 0.064))
-    : Math.max(8, Math.min(13, rect.width * 0.048));
-  const minimumFontSize = isPrompt
-    ? Math.max(9, Math.min(13, rect.width * 0.045))
-    : Math.max(9, Math.min(10, rect.width * 0.03));
-  const lineHeightScale = isPrompt ? 1.42 : 1.48;
+  // 字号随纸宽自适应：优先 13px 上限，长文逐级收缩到 9-10px 下限保证整封可读
+  const preferredFontSize = Math.max(8, Math.min(13, rect.width * 0.048));
+  const minimumFontSize = Math.max(9, Math.min(10, rect.width * 0.03));
+  const lineHeightScale = 1.48;
   let fontSize = preferredFontSize;
   let lineHeight = fontSize * lineHeightScale;
   let lines: string[] = [];
@@ -236,40 +234,8 @@ function paintEnvelopeAssetLayer(
   context.restore();
 }
 
-function paintBurningCard(context: CanvasRenderingContext2D, rect: Rect, geometry: BurnGeometryBuffer, text: string, fontPackageId: FontPackageId, letterPaper?: CanvasImageSource | null): void {
-  context.save();
-  context.beginPath(); context.moveTo(rect.left, rect.top + rect.height); context.lineTo(rect.left + rect.width, rect.top + rect.height);
-  for (let index = geometry.lineX.length - 1; index >= 0; index -= 1) context.lineTo(geometry.lineX[index], geometry.lineY[index]);
-  context.closePath(); context.clip();
-  paintCardFace(context, rect, Boolean(text), text, fontPackageId, letterPaper); context.restore();
-  context.save(); context.lineJoin = 'round'; context.lineCap = 'round'; context.beginPath(); context.moveTo(geometry.lineX[0], geometry.lineY[0] + 3);
-  for (let index = 1; index < geometry.lineX.length; index += 1) context.lineTo(geometry.lineX[index], geometry.lineY[index]);
-  context.strokeStyle = '#49372F'; context.lineWidth = 11; context.globalAlpha = 0.86; context.stroke();
-  context.beginPath(); context.moveTo(geometry.lineX[0], geometry.lineY[0] - 4);
-  for (let index = 1; index < geometry.lineX.length; index += 1) {
-    const tongueLift = 4 + Math.abs(Math.sin(index * 1.73)) * 7;
-    context.lineTo(geometry.lineX[index], geometry.lineY[index] - tongueLift);
-  }
-  context.shadowColor = 'rgba(216,90,48,.34)'; context.shadowBlur = 8;
-  context.strokeStyle = OUTER_FLAME_COLOR; context.lineWidth = 11; context.globalAlpha = 0.82; context.stroke();
-  context.shadowBlur = 0; context.strokeStyle = INNER_FLAME_COLOR; context.lineWidth = 4; context.globalAlpha = 0.94; context.stroke();
-  context.strokeStyle = '#E5C3A2'; context.lineWidth = 1.4; context.globalAlpha = 0.72;
-  for (let index = 4; index < geometry.lineX.length - 2; index += 9) {
-    context.beginPath(); context.moveTo(geometry.lineX[index], geometry.lineY[index] + 3);
-    context.quadraticCurveTo(geometry.lineX[index] + 5, geometry.lineY[index] - 7, geometry.lineX[index] + 11, geometry.lineY[index] + 2); context.stroke();
-  }
-  context.restore();
-  context.save(); context.globalAlpha = Math.max(0, 0.2 * (1 - geometry.progress)); context.fillStyle = '#C9C4BB';
-  for (let index = 0; index < geometry.stripOffsetX.length; index += 1) {
-    const width = rect.width / geometry.stripOffsetX.length;
-    context.fillRect(rect.left + index * width + geometry.stripOffsetX[index], rect.top + geometry.stripOffsetY[index], width + 2, Math.max(0, rect.height * geometry.progress - 8));
-  }
-  context.restore();
-}
-
 export interface LetterScenePaintOptions {
   width: number; height: number; layout: LetterSceneLayout; state: BurningState;
-  burnGeometry: BurnGeometryBuffer; burnSeed: number;
   menuGlowProgress: number;
   fontPackageId?: FontPackageId;
   reducedMotion?: boolean;
@@ -360,10 +326,18 @@ function interpolateRect(from: Rect, to: Rect, progress: number): Rect {
 }
 
 /**
- * 回缩时先让信纸回到卡片附近，再显现信封前袋。
- * 这样前袋不会在回收动画开头抢先盖到画面上；普通阶段仍保持完全不透明。
+ * 回缩时先让信纸回到卡片附近，再显现信封前袋（前袋不抢盖回收动画开头）。
+ * 收好折回入袋时前袋随进度渐进遮回；入袋后的安静/统计阶段保持完全遮盖。
  */
 function editReturnFrontAlpha(state: BurningState, reducedMotion = false): number {
+  if (state.phase === 'settle') {
+    // 前袋在后半程渐进遮回：先看清信纸折入，临近入袋时前袋合拢
+    const durationMs = reducedMotion ? REDUCED_SETTLE_DURATION_MS : SETTLE_DURATION_MS;
+    const progress = Math.max(0, Math.min(1, state.elapsedMs / durationMs));
+    if (progress <= 0.5) return 0;
+    const revealProgress = Math.min(1, (progress - 0.5) / 0.45);
+    return 1 - Math.pow(1 - revealProgress, 3);
+  }
   if (state.phase !== 'edit-return') return 1;
   const durationMs = reducedMotion ? REDUCED_EDIT_RETURN_DURATION_MS : EDIT_RETURN_DURATION_MS;
   const progress = Math.max(0, Math.min(1, state.elapsedMs / durationMs));
@@ -391,53 +365,51 @@ function paintActivePostcard(context: CanvasRenderingContext2D, options: LetterS
     const progress = 1 - Math.min(1, state.elapsedMs / durationMs);
     const eased = 1 - Math.pow(1 - progress, 3);
     rect = interpolateRect(layout.cardRect, computeExpandedPaperRect(layout), eased);
+  } else if (state.phase === 'settle') {
+    // 确认收好：整张信纸从展示位连续折回成对折态插回信封，前袋同步遮回
+    const durationMs = options.reducedMotion ? REDUCED_SETTLE_DURATION_MS : SETTLE_DURATION_MS;
+    const progress = Math.min(1, state.elapsedMs / durationMs);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    rect = interpolateRect(layout.cardRect, layout.foldedCardRect, eased);
   } else {
-    rect = state.phase === 'burn' ? layout.burnCardRect : { ...layout.cardRect, top: layout.cardRect.top + state.offsetY };
+    rect = { ...layout.cardRect, top: layout.cardRect.top + state.offsetY };
   }
   context.save(); context.translate(rect.left + rect.width / 2, rect.top + rect.height / 2); context.rotate(state.tiltDegrees * Math.PI / 180); context.translate(-(rect.left + rect.width / 2), -(rect.top + rect.height / 2));
-  if (state.phase === 'burn' && state.elapsedMs >= 0) {
-    updateBurnGeometryInto(options.burnGeometry, rect, burnProgress(state), options.burnSeed);
-    paintBurningCard(context, rect, options.burnGeometry, state.text, options.fontPackageId ?? DEFAULT_FONT_PACKAGE_ID, options.assets?.letterPaper);
-  } else paintCardFace(context, rect, state.phase !== 'front', state.text, options.fontPackageId ?? DEFAULT_FONT_PACKAGE_ID, options.assets?.letterPaper);
+  paintCardFace(context, rect, true, state.text, options.fontPackageId ?? DEFAULT_FONT_PACKAGE_ID, options.assets?.letterPaper);
   context.restore();
 }
 
 export function paintLetterScene(context: CanvasRenderingContext2D, options: LetterScenePaintOptions): void {
   paintPaperBackground(context, options.width, options.height, options.assets?.background, options.assets?.backgroundComposed);
   const { state, layout } = options;
-  const ritualClear = state.phase === 'fade' || state.phase === 'silence' || state.phase === 'stat';
+  // 入袋后的安静/统计阶段按「纸已收好」呈现：信封静置 + 对折纸就位
+  const tucked = state.phase === 'idle' || state.phase === 'quiet' || state.phase === 'stat';
   const openEnvelopeBack = options.assets?.openEnvelopeBack;
   const openEnvelopeFront = options.assets?.openEnvelopeFront;
   const legacyOpenEnvelope = options.assets?.openEnvelope;
   const envelopeFrontAlpha = editReturnFrontAlpha(state, options.reducedMotion);
-  if (!ritualClear && state.phase === 'edit') {
+  if (state.phase === 'edit') {
     // 编辑态让原始信纸独占可用视口，避免信封层把放大后的纸面截断。
     paintActivePostcard(context, options);
-  } else if (!ritualClear && openEnvelopeBack && openEnvelopeFront) {
+  } else if (openEnvelopeBack && openEnvelopeFront) {
     // 真实遮挡顺序：后片/内衬 → 信纸 → V 字正面。正面层不再依赖近似裁剪。
     paintEnvelopeAssetLayer(context, layout.envelopeRect, openEnvelopeBack, true);
-    if (state.phase === 'idle') paintFoldedTop(context, layout.foldedCardRect, options.assets?.letterPaper);
+    if (tucked) paintFoldedTop(context, layout.foldedCardRect, options.assets?.letterPaper);
     else paintActivePostcard(context, options);
     if (envelopeFrontAlpha > 0) {
       paintEnvelopeAssetLayer(context, layout.envelopeRect, openEnvelopeFront, false, envelopeFrontAlpha);
     }
-  } else if (!ritualClear && legacyOpenEnvelope) {
+  } else if (legacyOpenEnvelope) {
     // 仅为旧快照/菜单测试保留；发行入口不会走这条路径。
     paintEnvelopeAssetLayer(context, layout.envelopeRect, legacyOpenEnvelope, true);
-    if (state.phase === 'idle') paintFoldedTop(context, layout.foldedCardRect, options.assets?.letterPaper);
+    if (tucked) paintFoldedTop(context, layout.foldedCardRect, options.assets?.letterPaper);
     else paintActivePostcard(context, options);
     if (envelopeFrontAlpha > 0) {
       paintEnvelopeAssetLayer(context, layout.envelopeRect, legacyOpenEnvelope, false, envelopeFrontAlpha);
     }
-  } else if (!ritualClear) paintActivePostcard(context, options);
-  const glow = afterglowVisual(state);
-  if (glow.alpha > 0) {
-    const cx = layout.burnCardRect.left + layout.burnCardRect.width / 2; const cy = layout.burnCardRect.top + layout.burnCardRect.height;
-    const radius = Math.max(options.width, options.height) * glow.radiusRatio; const gradient = context.createRadialGradient(cx, cy, 0, cx, cy, radius);
-    gradient.addColorStop(0, `rgba(216,90,48,${glow.alpha})`); gradient.addColorStop(1, 'rgba(216,90,48,0)'); context.fillStyle = gradient; context.fillRect(0, 0, options.width, options.height);
-  }
+  } else paintActivePostcard(context, options);
   if (state.phase === 'stat' && state.count !== null) {
-    const alpha = statAlpha(state); const x = options.width / 2; const y = layout.burnCardRect.top + layout.burnCardRect.height;
+    const alpha = statAlpha(state); const x = options.width / 2; const y = layout.envelopeRect.top - 24;
     context.save(); context.globalAlpha = alpha; context.fillStyle = INK; context.textAlign = 'center'; context.textBaseline = 'middle'; context.font = "18px ui-rounded,'PingFang SC',sans-serif"; context.fillText(COPY.now, x, y - 22);
     const number = String(state.count); const suffix = ` ${COPY.statSuffix}`;
     context.font = "29px ui-rounded,'PingFang SC',sans-serif"; const numberWidth = context.measureText(number).width; context.font = "18px ui-rounded,'PingFang SC',sans-serif"; const suffixWidth = context.measureText(suffix).width; const start = x - (numberWidth + suffixWidth) / 2;
@@ -464,5 +436,5 @@ export function paintPageBurn(
   updateBurnGeometryInto(geometry, rect, progress, seed);
   context.save(); context.fillStyle = 'rgba(73,55,47,.76)'; context.fillRect(0, 0, width, Math.max(0, height * progress - 7));
   context.beginPath(); context.moveTo(geometry.lineX[0], geometry.lineY[0]); for (let index = 1; index < geometry.lineX.length; index += 1) context.lineTo(geometry.lineX[index], geometry.lineY[index]);
-  context.strokeStyle = '#49372F'; context.lineWidth = 10; context.stroke(); context.strokeStyle = OUTER_FLAME_COLOR; context.lineWidth = 7; context.stroke(); context.strokeStyle = INNER_FLAME_COLOR; context.lineWidth = 3; context.stroke(); context.restore();
+  context.strokeStyle = PAGE_BURN_EDGE_COLOR; context.lineWidth = 10; context.stroke(); context.strokeStyle = PAGE_BURN_FLAME_COLOR; context.lineWidth = 7; context.stroke(); context.strokeStyle = PAGE_BURN_CORE_COLOR; context.lineWidth = 3; context.stroke(); context.restore();
 }

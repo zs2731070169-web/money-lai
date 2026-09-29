@@ -19,7 +19,7 @@ describe('真实位图目录与信的主题组合', () => {
     const letterPaper = { id: 'letter-paper' } as unknown as CanvasImageSource;
     for (const postcard of POSTCARD_CATALOG) for (const _theme of themes) {
       const draws: unknown[][] = [];
-      paintLetterScene(contextStub(draws), { width: 402, height: 874, layout, state: { ...createBurningState(), phase: 'front' }, burnGeometry: createBurnGeometryBuffer(), burnSeed: postcard.burnSeed, menuGlowProgress: 0, assets: { openEnvelope, letterPaper } });
+      paintLetterScene(contextStub(draws), { width: 402, height: 874, layout, state: { ...createBurningState(), phase: 'back' }, menuGlowProgress: 0, assets: { openEnvelope, letterPaper } });
       expect(draws.some((args) => args[0] === openEnvelope)).toBe(true);
       expect(draws.some((args) => args[0] === letterPaper)).toBe(true);
       combinations += 1;

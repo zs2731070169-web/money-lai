@@ -12,25 +12,22 @@ async function readyGame(textResult: string | null = '原文', initialState?: Le
   return { game, platform, layout: computeLetterSceneLayout(platform.viewport.width, platform.viewport.height, platform.safe) };
 }
 
-async function burnCurrentCard(platform: FakePlatform, layout: ReturnType<typeof computeLetterSceneLayout>): Promise<void> {
-  drawAndFlip(platform, layout);
-  const cx = layout.cardRect.left + layout.cardRect.width / 2; const cy = layout.cardRect.top + layout.cardRect.height / 2;
-  await Promise.resolve();
-  for (let index = 0; index < 4; index += 1) platform.tick(100);
-  platform.touch('start', cx, cy); platform.now += 200; platform.touch('move', cx, cy - 180); platform.touch('end', cx, cy - 180);
-  for (let index = 0; index < 30; index += 1) platform.tick(100);
-  await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 /** 抽取释放后推进时钟穿过 450ms 自动展开并进入全屏编辑相位 */
 function advancePastUnfold(platform: FakePlatform): void {
   for (let index = 0; index < 5; index += 1) platform.tick(100);
 }
 
-function drawAndFlip(platform: FakePlatform, layout: ReturnType<typeof computeLetterSceneLayout>) {
+async function drawAndFlip(platform: FakePlatform, layout: ReturnType<typeof computeLetterSceneLayout>) {
   const x = layout.envelopeRect.left + layout.envelopeRect.width / 2; const y = layout.envelopeRect.top + 20;
   platform.touch('start', x, y); platform.now += 100; platform.touch('move', x, y - 100); platform.touch('end', x, y - 100);
   advancePastUnfold(platform);
+}
+
+/** 确认输入解析完成后推进 edit-return(320ms)+settle(450ms) 两段动画 */
+async function confirmThroughSettle(platform: FakePlatform, layout: ReturnType<typeof computeLetterSceneLayout>) {
+  await drawAndFlip(platform, layout);
+  await Promise.resolve(); await Promise.resolve();
+  for (let index = 0; index < 9; index += 1) platform.tick(100);
 }
 
 /** 挂起多行输入并在主画布上记录 fillText，用于断言输入期间/之后的信纸文字渲染。 */
@@ -59,7 +56,7 @@ class HeldInputPlatform extends FakePlatform {
   }
 }
 
-describe('信封到燃烧的端到端链路', () => {
+describe('信封到收好的端到端链路', () => {
   it('抽取音效在首次小步上移时也能触发，不要求单帧达到 1px', () => {
     const drawing = beginDraw(createBurningState(), 1, 700, 0);
     const moved = movePointer(drawing, 1, 699.5, 16);
@@ -76,94 +73,84 @@ describe('信封到燃烧的端到端链路', () => {
     expect(game.getTestSnapshot().phase).toBe('edit');
   });
 
-  it('抽取、翻面、输入、甩出、保存、匿名计数、统计、复位', async () => {
-    const { game, platform, layout } = await readyGame('一句话\n第二行'); drawAndFlip(platform, layout);
-    const cx = layout.cardRect.left + layout.cardRect.width / 2; const cy = layout.cardRect.top + layout.cardRect.height / 2;
-    await Promise.resolve();
-    expect(game.getTestSnapshot().phase).toBe('edit-return');
-    for (let index = 0; index < 4; index += 1) platform.tick(100);
-    expect(game.getTestSnapshot().phase).toBe('back');
-    platform.touch('start', cx, cy); platform.now += 200; platform.touch('move', cx, cy - 180); platform.touch('end', cx, cy - 180);
-    expect(game.getTestSnapshot().phase).toBe('burn');
-    for (let index = 0; index < 30; index += 1) platform.tick(100);
+  it('抽取、书写、确认收好、保存、匿名计数、统计、复位', async () => {
+    const { game, platform, layout } = await readyGame('一句话\n第二行');
+    await confirmThroughSettle(platform, layout);
+    expect(game.getTestSnapshot().phase).toBe('quiet');
     await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let index = 0; index < 15; index += 1) platform.tick(100);
+    expect(game.getTestSnapshot().phase).toBe('stat');
     expect(game.getTestSnapshot().persisted.journalEntries[0].text).toBe('一句话\n第二行');
     expect(game.getTestSnapshot().persisted.postcardMileage).toBe(1);
     expect(platform.countCalls).toBe(1);
-    for (let index = 0; index < 8 + 18; index += 1) platform.tick(100);
-    expect(game.getTestSnapshot().phase).toBe('stat');
     for (let index = 0; index < 30; index += 1) platform.tick(100);
     expect(game.getTestSnapshot().phase).toBe('idle');
     expect(platform.storage.has(LETTER_BURNING_STORAGE_KEY)).toBe(true);
   });
 
-  it('取消输入与未达阈值回弹都保留已有文字', async () => {
-    const { game, platform, layout } = await readyGame(null); drawAndFlip(platform, layout);
-    const cx = layout.cardRect.left + layout.cardRect.width / 2; const cy = layout.cardRect.top + layout.cardRect.height / 2;
-    await Promise.resolve();
-    for (let index = 0; index < 4; index += 1) platform.tick(100);
-    platform.touch('start', cx, cy); platform.now += 300; platform.touch('move', cx, cy - 20); platform.touch('end', cx, cy - 20);
-    expect(game.getTestSnapshot().phase).toBe('rebound');
-    platform.tick(100); platform.tick(100); platform.tick(100);
-    expect(game.getTestSnapshot().phase).toBe('back');
-  });
-
-  it('空白、多项解锁、偶数节奏和离线计数均按完整时钟链路降级', async () => {
-    let beforeThird = createEmptyLetterBurningState();
-    beforeThird = settleCompletedPostcard(beforeThird, { id: 'a', createdAtIso: '2026-09-26T00:00:00.000Z', patternId: 'postcard-01', text: '一' });
-    beforeThird = settleCompletedPostcard(beforeThird, { id: 'b', createdAtIso: '2026-09-27T00:00:00.000Z', patternId: 'postcard-02', text: '二' });
-    const odd = await readyGame('', beforeThird); odd.platform.countResult = 33; await burnCurrentCard(odd.platform, odd.layout);
-    expect(odd.game.getTestSnapshot().persisted.activeThemeId).toBe('topic1');
-    expect(odd.game.getTestSnapshot().persisted.achievementIds).toContain('first-blank');
-    for (let index = 0; index < 26; index += 1) odd.platform.tick(100);
-    expect(odd.game.getTestSnapshot().phase).toBe('stat');
-
-    const beforeSecond = settleCompletedPostcard(createEmptyLetterBurningState(), { id: 'a', createdAtIso: '2026-09-27T00:00:00.000Z', patternId: 'postcard-01', text: '' });
-    const even = await readyGame('', beforeSecond); even.platform.countResult = 44; await burnCurrentCard(even.platform, even.layout);
-    for (let index = 0; index < 26; index += 1) even.platform.tick(100);
-    expect(even.game.getTestSnapshot().phase).toBe('idle'); expect(even.platform.countCalls).toBe(1);
-
-    const offline = await readyGame('离线内容'); offline.platform.countResult = null; await burnCurrentCard(offline.platform, offline.layout);
-    for (let index = 0; index < 26; index += 1) offline.platform.tick(100);
-    expect(offline.game.getTestSnapshot().phase).toBe('idle'); expect(offline.game.getTestSnapshot().persisted.journalEntries).toHaveLength(1);
-  });
-
-  it('输入面板打开期间信纸不渲染引导语，取消空白后恢复', async () => {
-    const platform = new HeldInputPlatform(); platform.storage.set(PRIVACY_CONSENT_STORAGE_KEY, 'true');
-    const game = new Game({ platformAdapter: platform }); await game.start(); platform.tick(0);
-    const layout = computeLetterSceneLayout(platform.viewport.width, platform.viewport.height, platform.safe);
-    drawAndFlip(platform, layout);
-    expect(game.getTestSnapshot().phase).toBe('edit');
-    expect(game.getTestSnapshot().inputActive).toBe(true);
-
-    // 输入面板激活期间渲染的帧不应再往信纸上画引导语（透明面板下会与输入文字叠印）
-    platform.paintedTexts.length = 0; platform.tick(100);
-    expect(platform.paintedTexts.join('')).toBe('');
-
-    // 取消且未输入文字：信纸保持留白（引导语只在放大编辑的输入层出现）
-    platform.settleDraft(null);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+  it('取消输入后停在展示位，可再次点开编辑', async () => {
+    const { game, platform, layout } = await readyGame(null);
+    await drawAndFlip(platform, layout);
+    await Promise.resolve(); await Promise.resolve();
     for (let index = 0; index < 4; index += 1) platform.tick(100);
     expect(game.getTestSnapshot().phase).toBe('back');
-    platform.paintedTexts.length = 0; platform.tick(100);
-    expect(platform.paintedTexts.join('')).toBe('');
-
-    // 确认一句话回到背面后再次点开编辑：信纸上的旧文字同样不与输入面板叠印
     const cardX = layout.cardRect.left + layout.cardRect.width / 2; const cardY = layout.cardRect.top + layout.cardRect.height / 2;
     platform.touch('start', cardX, cardY); platform.now += 100; platform.touch('end', cardX, cardY);
     expect(game.getTestSnapshot().inputActive).toBe(true);
-    platform.settleDraft('一句话');
+    await Promise.resolve(); await Promise.resolve();
+    expect(game.getTestSnapshot().phase).toBe('edit-return');
+  });
+
+  it('空白确认同样收好保存并达成空白成就', async () => {
+    const { game, platform, layout } = await readyGame('');
+    await confirmThroughSettle(platform, layout);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    for (let index = 0; index < 4; index += 1) platform.tick(100);
-    expect(game.getTestSnapshot().phase).toBe('back');
-    platform.touch('start', cardX, cardY); platform.now += 100; platform.touch('end', cardX, cardY);
+    expect(game.getTestSnapshot().persisted.journalEntries[0].text).toBe('');
+    expect(game.getTestSnapshot().persisted.achievementIds).toContain('first-blank');
+  });
+
+  it('偶数节奏与离线计数均按完整时钟链路降级', async () => {
+    const beforeSecond = settleCompletedPostcard(createEmptyLetterBurningState(), { id: 'a', createdAtIso: '2026-09-27T00:00:00.000Z', patternId: 'postcard-01', text: '' });
+    const even = await readyGame('', beforeSecond); even.platform.countResult = 44;
+    await confirmThroughSettle(even.platform, even.layout);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(even.game.getTestSnapshot().phase).toBe('idle');
+    expect(even.platform.countCalls).toBe(1);
+
+    const offline = await readyGame('离线内容'); offline.platform.countResult = null;
+    await confirmThroughSettle(offline.platform, offline.layout);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let index = 0; index < 15; index += 1) offline.platform.tick(100);
+    expect(offline.game.getTestSnapshot().phase).toBe('idle');
+    expect(offline.game.getTestSnapshot().persisted.journalEntries).toHaveLength(1);
+  });
+
+  it('输入面板打开期间信纸不渲染任何文字；取消空白纸面保持干净，确认后字迹随收好折回', async () => {
+    const platform = new HeldInputPlatform(); platform.storage.set(PRIVACY_CONSENT_STORAGE_KEY, 'true');
+    const game = new Game({ platformAdapter: platform }); await game.start(); platform.tick(0);
+    const layout = computeLetterSceneLayout(platform.viewport.width, platform.viewport.height, platform.safe);
+    await drawAndFlip(platform, layout);
     expect(game.getTestSnapshot().inputActive).toBe(true);
+
+    // 输入面板激活期间画布零文字（引导语只活在输入层占位）
     platform.paintedTexts.length = 0; platform.tick(100);
     expect(platform.paintedTexts.join('')).toBe('');
 
-    // 取消编辑：已确认文字原样回到信纸
+    // 取消空白：纸面保持干净（画布不再绘制引导语）
     platform.settleDraft(null);
     await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let index = 0; index < 4; index += 1) platform.tick(100);
+    expect(game.getTestSnapshot().phase).toBe('back');
+    platform.paintedTexts.length = 0; platform.tick(100);
+    expect(platform.paintedTexts.join('')).toBe('');
+
+    // 再次点开并确认：收好折回过程中字迹随信纸呈现
+    const cardX = layout.cardRect.left + layout.cardRect.width / 2; const cardY = layout.cardRect.top + layout.cardRect.height / 2;
+    platform.touch('start', cardX, cardY); platform.now += 100; platform.touch('end', cardX, cardY);
+    platform.settleDraft('一句话');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let index = 0; index < 6; index += 1) platform.tick(100);
+    expect(game.getTestSnapshot().phase).toBe('settle');
     platform.paintedTexts.length = 0; platform.tick(100);
     expect(platform.paintedTexts.join('')).toContain('一句话');
   });

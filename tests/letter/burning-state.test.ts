@@ -1,137 +1,132 @@
 import { describe, expect, it } from 'vitest';
 import {
-  AFTERGLOW_DURATION_MS, BURN_DURATION_MS, MAX_FRAME_DELTA_MS, MAX_LETTER_TEXT_LENGTH, SILENCE_DURATION_MS,
-  REDUCED_REBOUND_DURATION_MS, REDUCED_UNFOLD_DURATION_MS, STAT_DURATION_MS, UNFOLD_DURATION_MS,
-  advanceBurningState, beginDraw, beginThrow, createBurningState,
-  beginEditing, endDraw, endThrow, finishEditing, movePointer, resolveCount, setPostcardText,
+  MAX_FRAME_DELTA_MS, MAX_LETTER_TEXT_LENGTH, QUIET_DURATION_MS, REDUCED_EDIT_RETURN_DURATION_MS, REDUCED_SETTLE_DURATION_MS, REDUCED_UNFOLD_DURATION_MS,
+  SETTLE_DURATION_MS, STAT_DURATION_MS, UNFOLD_DURATION_MS,
+  advanceBurningState, beginDraw, beginEditing, createBurningState,
+  endDraw, finishEditing, movePointer, resolveCount, setPostcardText,
   type BurningState,
 } from '../../src/core/letter/burning-state';
 
-function advanceUntil(state: ReturnType<typeof createBurningState>, phase: string) {
+function advanceUntil(state: ReturnType<typeof createBurningState>, phase: string, reducedMotion = false) {
   let current = state;
   const effects: string[] = [];
   for (let index = 0; index < 200 && current.phase !== phase; index += 1) {
-    const update = advanceBurningState(current, 100);
+    const update = advanceBurningState(current, 100, reducedMotion);
     current = update.state;
     effects.push(...update.effects);
   }
   return { state: current, effects };
 }
 
-describe('燃信纯状态机', () => {
-  it('沿完整路径前进，并锁定展开、燃烧、余光、静默与统计时长', () => {
-    let state = beginDraw(createBurningState(), 1, 700, 0);
-    state = movePointer(state, 1, 600, 100);
-    state = endDraw(state, 1).state;
-    expect(state.phase).toBe('unfold');
-    state = advanceUntil(state, 'edit').state;
+function drawnToEdit(): BurningState {
+  const drawn = endDraw(movePointer(beginDraw(createBurningState(), 1, 700, 0), 1, 600, 100), 1);
+  return advanceUntil(drawn.state, 'edit').state;
+}
+
+describe('倾诉收好纯状态机', () => {
+  it('沿完整路径前进：抽取→书写→确认收好→保存→统计→复位，并锁定各时长', () => {
+    let state = drawnToEdit();
     expect(UNFOLD_DURATION_MS).toBe(450);
     state = setPostcardText(state, '一句话\n仍是一行');
-    expect(state.text).toBe('一句话\n仍是一行');
-    state = [100, 100, 100, 100].reduce((current) => advanceBurningState(current, 100).state, finishEditing(state));
-    expect(state.phase).toBe('back');
-    state = beginThrow(state, 1, 650, 200);
-    state = movePointer(state, 1, 500, 350);
-    const released = endThrow(state, 1, 500, 350, 800, true);
-    expect(released.state.phase).toBe('burn');
-    expect(released.effects).toEqual([]);
-    const fade = advanceUntil(released.state, 'fade');
-    expect(fade.effects).toEqual(expect.arrayContaining(['save', 'afterglow', 'extinguish']));
-    expect(BURN_DURATION_MS).toBe(2700);
-    const silence = advanceUntil(resolveCount(fade.state, 42), 'silence');
-    expect(AFTERGLOW_DURATION_MS).toBe(800);
-    const stat = advanceUntil(silence.state, 'stat');
-    expect(SILENCE_DURATION_MS).toBe(1800);
+    // 确认：finishEditing 携带 settle 与统计节奏意图，回缩完成后直接进入收好
+    state = finishEditing(state, true, true);
+    expect(state.phase).toBe('edit-return');
+    state = advanceUntil(state, 'settle').state;
+    expect(state.phase).toBe('settle');
+    const settled = advanceUntil(state, 'quiet');
+    expect(settled.state.phase).toBe('quiet');
+    expect(settled.effects).toContain('save');
+    expect(SETTLE_DURATION_MS).toBe(450);
+    const stat = advanceUntil(resolveCount(settled.state, 42), 'stat');
+    expect(QUIET_DURATION_MS).toBe(1500);
+    expect(stat.state.phase).toBe('stat');
     const idle = advanceUntil(stat.state, 'idle');
     expect(STAT_DURATION_MS).toBe(3000);
+    expect(idle.state.text).toBe('');
     expect(idle.effects).toContain('reset');
   });
 
-  it('展开相位保留抽取位移作为动画起点，跨相位推进不丢剩余毫秒', () => {
-    // 抽出 100px 后释放：进入展开相位时保留 offsetY 供画师插值，展开结束后清零
+  it('抽取位移保留为展开起点，抽出成功只发一次 drawn', () => {
     const release = endDraw(movePointer(beginDraw(createBurningState(), 1, 700, 0), 1, 600, 100), 1);
-    const released = release.state;
-    // 抽出成功只在瞬间发出一次 'drawn'（摩擦声触发点），未达阈值回弹则无效果
     expect(release.effects).toEqual(['drawn']);
     expect(endDraw(movePointer(beginDraw(createBurningState(), 1, 700, 0), 1, 690, 100), 1).effects).toEqual([]);
-    expect(released.phase).toBe('unfold');
-    expect(released.offsetY).toBe(-85);
-    const partial = advanceBurningState({ ...released, elapsedMs: UNFOLD_DURATION_MS - 50 }, 80).state;
+    expect(release.state.phase).toBe('unfold');
+    expect(release.state.offsetY).toBe(-85);
+    const partial = advanceBurningState({ ...release.state, elapsedMs: UNFOLD_DURATION_MS - 50 }, 80).state;
     expect(partial.phase).toBe('edit');
     expect(partial.offsetY).toBe(0);
   });
 
-  it('减弱动态效果时展开缩短为 150ms', () => {
+  it('取消不落袋：回缩后停在展示位，文字保留且可再次进入编辑', () => {
+    let state = setPostcardText(drawnToEdit(), '保留的心事');
+    state = finishEditing(state, false);
+    state = advanceUntil(state, 'back').state;
+    expect(state.phase).toBe('back');
+    expect(state.text).toBe('保留的心事');
+    expect(beginEditing(state).phase).toBe('edit');
+  });
+
+  it('空白确认同样收好并保存', () => {
+    let state = drawnToEdit();
+    state = finishEditing(state, true, false);
+    const settled = advanceUntil(state, 'idle');
+    expect(settled.effects).toContain('save');
+    expect(settled.effects).toContain('reset');
+    expect(settled.state.phase).toBe('idle');
+  });
+
+  it('不满足统计节奏时收好完成后直接复位，无统计相位', () => {
+    const state = finishEditing(setPostcardText(drawnToEdit(), '内容'), true, false);
+    const done = advanceUntil(state, 'idle');
+    expect(done.effects).toContain('save');
+    expect(done.effects).toContain('reset');
+    expect(done.effects).not.toContain('afterglow');
+  });
+
+  it('quiet 结束时计数缺失则跳过统计直接复位（离线降级）', () => {
+    let state = finishEditing(setPostcardText(drawnToEdit(), '内容'), true, true);
+    state = advanceUntil(state, 'quiet').state;
+    const done = advanceUntil(resolveCount(state, null), 'idle');
+    expect(done.state.phase).toBe('idle');
+    expect(done.effects).toContain('reset');
+  });
+
+  it('收好期间触摸无效，后台大步长只推进 100ms', () => {
+    const settling: BurningState = { ...createBurningState(), phase: 'settle' };
+    expect(beginDraw(settling, 2, 100, 0)).toBe(settling);
+    expect(beginEditing(settling)).toBe(settling);
+    const advanced = advanceBurningState(settling, 10_000).state;
+    expect(advanced.phase).toBe('settle');
+    expect(advanced.elapsedMs).toBe(MAX_FRAME_DELTA_MS);
+  });
+
+  it('跨相位保留剩余毫秒：edit-return 完成的同帧开始推进收好', () => {
+    const returning = finishEditing(setPostcardText(drawnToEdit(), '字'), true, false);
+    const nearEnd: BurningState = { ...returning, elapsedMs: 320 - 50 };
+    const crossed = advanceBurningState(nearEnd, 80);
+    expect(crossed.state.phase).toBe('settle');
+    expect(crossed.state.elapsedMs).toBe(30);
+  });
+
+  it('减弱动态效果时展开与收好均缩短为 150ms', () => {
     const released = endDraw(movePointer(beginDraw(createBurningState(), 1, 700, 0), 1, 600, 100), 1).state;
     let state = advanceBurningState(released, 100, true).state;
     expect(state.phase).toBe('unfold');
     state = advanceBurningState(state, REDUCED_UNFOLD_DURATION_MS - 100, true).state;
     expect(state.phase).toBe('edit');
+    const settling = advanceUntil(finishEditing(state, true, false), 'idle', true).state;
+    expect(settling.phase).toBe('idle');
   });
 
-  it('位移达到屏高 15% 或速度超过 700px/s 时燃烧', () => {
-    const editing = advanceUntil(endDraw(movePointer(beginDraw(createBurningState(), 1, 700, 0), 1, 600, 100), 1).state, 'edit').state;
-    const back = [100, 100, 100, 100].reduce((current) => advanceBurningState(current, 100).state, finishEditing(editing));
-    const byDistance = endThrow(beginThrow(back, 2, 600, 0), 2, 480, 500, 800, false);
-    expect(byDistance.state.phase).toBe('burn');
-    const bySpeed = endThrow(beginThrow(back, 3, 600, 0), 3, 520, 100, 800, false);
-    expect(bySpeed.state.phase).toBe('burn');
-  });
-
-  it('未达阈值 300ms 回弹，文字不丢失', () => {
-    let state: BurningState = { ...createBurningState(), phase: 'back', text: '保留' };
-    state = beginThrow(state, 1, 500, 0);
-    state = endThrow(state, 1, 480, 200, 800, false).state;
-    expect(state.phase).toBe('rebound');
-    state = advanceBurningState(state, 100).state;
-    state = advanceBurningState(state, 100).state;
-    state = advanceBurningState(state, 100).state;
-    expect(state.phase).toBe('back');
-    expect(state.text).toBe('保留');
-  });
-
-  it('燃烧开始后忽略触点，后台大步长只推进 100ms', () => {
-    const burning = { ...createBurningState(), phase: 'burn' as const, pointerId: null };
-    expect(beginDraw(burning, 2, 100, 0)).toBe(burning);
-    const advanced = advanceBurningState(burning, 10_000).state;
-    expect(advanced.phase).toBe('burn');
-    expect(advanced.elapsedMs).toBe(MAX_FRAME_DELTA_MS);
-  });
-
-  it('跨相位保留剩余毫秒，回弹轨迹不依赖帧数', () => {
-    const nearFade: BurningState = { ...createBurningState(), phase: 'burn', elapsedMs: BURN_DURATION_MS - 50 };
-    const crossed = advanceBurningState(nearFade, 80);
-    expect(crossed.state.phase).toBe('fade');
-    expect(crossed.state.elapsedMs).toBe(30);
-
-    const rebound: BurningState = { ...createBurningState(), phase: 'rebound', offsetY: -40, reboundStartOffsetY: -40 };
-    const threeFrames = [100, 100, 100].reduce((current, delta) => advanceBurningState(current, delta).state, rebound);
-    const sixFrames = [50, 50, 50, 50, 50, 50].reduce((current, delta) => advanceBurningState(current, delta).state, rebound);
-    expect(threeFrames).toEqual(sixFrames);
-    expect(threeFrames.phase).toBe('back');
-  });
-
-  it('减弱动态效果只缩短非关键回弹', () => {
-    const rebound: BurningState = { ...createBurningState(), phase: 'rebound', offsetY: -40, reboundStartOffsetY: -40 };
-    let state = advanceBurningState(rebound, 100, true).state;
-    expect(state.phase).toBe('rebound');
-    state = advanceBurningState(state, REDUCED_REBOUND_DURATION_MS - 100, true).state;
-    expect(state.phase).toBe('back');
-  });
-
-  it('编辑态保留换行并把特殊符号计入字数上限，退出后回缩到背面', () => {
+  it('编辑态保留换行并按 Unicode 码点截断到 400 字', () => {
     expect(MAX_LETTER_TEXT_LENGTH).toBe(400);
-    const front = { ...createBurningState(), phase: 'front' as const };
-    const editing = beginEditing(front);
-    // 超上限构造：换行与表情均按 Unicode 码点计入，截断到 MAX_LETTER_TEXT_LENGTH
+    const back: BurningState = { ...createBurningState(), phase: 'back' };
+    const editing = beginEditing(back);
     const source = `${'字'.repeat(MAX_LETTER_TEXT_LENGTH - 2)}\n${'字'.repeat(10)}😀末尾`;
     const written = setPostcardText(editing, source);
     expect(written.phase).toBe('edit');
     expect(Array.from(written.text)).toHaveLength(MAX_LETTER_TEXT_LENGTH);
     expect(written.text.includes('\n')).toBe(true);
-    const returning = finishEditing(written);
-    expect(returning.phase).toBe('edit-return');
-    // 单帧增量被 MAX_FRAME_DELTA_MS=100 钳制，回缩到背面需分帧推进
-    expect(advanceUntil(returning, 'back').state.phase).toBe('back');
+    expect(advanceUntil(finishEditing(written), 'back').state.phase).toBe('back');
   });
 });

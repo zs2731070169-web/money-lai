@@ -76,6 +76,9 @@ function paintJournal(
   letterPaper?: CanvasImageSource | null,
 ): void {
   const layout = computeJournalLayout(width, height, safe, entries.length, scroll); title(context, COPY.journal, width, safe);
+  // 网格裁剪在页眉带之下：滚动时缩略图从 banner 下缘滑出，不遮挡标题与左上返回按钮
+  const gridClipTop = layout.headerRect.top + layout.headerRect.height;
+  context.save(); context.beginPath(); context.rect(0, gridClipTop, width, height - gridClipTop); context.clip();
   for (const cell of layout.cells) {
     const entry = entries[cell.entryIndex];
     const artArea = { ...cell.rect, height: cell.rect.height - 23 };
@@ -84,6 +87,7 @@ function paintJournal(
     paintLetterPaperAsset(context, paperRect, letterPaper); context.restore();
     context.fillStyle = INK; context.globalAlpha = 0.7; context.font = "11px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center'; context.fillText(entry.createdAtIso.slice(0, 10), cell.rect.left + cell.rect.width / 2, cell.rect.top + cell.rect.height - 7); context.globalAlpha = 1;
   }
+  context.restore();
   context.fillStyle = INK; context.globalAlpha = 0.56; context.textAlign = 'center'; context.font = "12px ui-rounded,'PingFang SC',sans-serif"; context.fillText(COPY.localOnly, width / 2, layout.noteY); context.globalAlpha = 1;
   // 页脚入口：烧掉整本手帐（安静置于本机说明上方，与页面基调一致）
   const clearEntry = journalClearRect(width, height, safe);
@@ -187,5 +191,7 @@ export function paintAppOverlay(context: CanvasRenderingContext2D, options: AppO
 
 export function hitJournalCell(width: number, height: number, safe: SafeAreaInsets, entryCount: number, scroll: number, x: number, y: number): number | null {
   const layout = computeJournalLayout(width, height, safe, entryCount, scroll);
+  // 页眉带（banner/返回按钮区）内不响应格块命中：被裁剪隐藏的格块部分不可点
+  if (y < layout.headerRect.top + layout.headerRect.height) return null;
   return layout.cells.find((cell) => containsPoint(cell.rect, x, y))?.entryIndex ?? null;
 }

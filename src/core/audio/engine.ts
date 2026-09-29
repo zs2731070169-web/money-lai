@@ -120,7 +120,7 @@ export class AudioEngine {
     if (!this.sfxBus || !this.envelopeDrawOutBuffer) return;
     const source = context.createBufferSource();
     source.buffer = this.envelopeDrawOutBuffer;
-    // 素材响度偏大：先经独立增益衰减，再进 sfxBus，便于单独调节而不影响点燃/燃烧声
+    // 素材响度偏大：先经独立增益衰减再进 sfxBus，便于单独调节抽信素材响度
     const playbackGain = context.createGain();
     playbackGain.gain.value = AUDIO_SYNTHESIS_PARAMETERS.envelopeDrawOut.playbackGain;
     source.connect(playbackGain);

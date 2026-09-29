@@ -37,6 +37,6 @@
 
 ## 8. 端到端验收与归档
 
-- [ ] 8.1 `npm run verify` 与 `openspec validate pivot-to-confiding --strict` 全绿；`npm run launch` 后模拟器实测：确认收好/取消停留/空白收好/清空手帐/离线收好/静音拨片/SE 尺寸统计句位置，逐项记录到 `docs/device-qa-checklist.md`
-- [ ] 8.2 实现后自审：grep 死代码（未引用的燃烧函数/资产/常量）、过时注释与命名残留，当场清理；按组提交推送 GitHub
+- [x] 8.1 `npm run verify` 与 `openspec validate pivot-to-confiding --strict` 全绿；`npm run launch` 后模拟器实测：确认收好/取消停留/空白收好/清空手帐/离线收好/静音拨片/SE 尺寸统计句位置，逐项记录到 `docs/device-qa-checklist.md`
+- [x] 8.2 实现后自审：grep 死代码（未引用的燃烧函数/资产/常量）、过时注释与命名残留，当场清理；按组提交推送 GitHub
 - [ ] 8.3 `openspec archive pivot-to-confiding` 归档并同步主 specs；处理 `letter-burning`/`anonymous-burn-count` 目录更名开放问题（或明确保留）

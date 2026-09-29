@@ -59,7 +59,7 @@ function paintCoverImage(
  * 三条背景路径（合成位图/cover 回退/纯色兜底）统一在收尾叠加，每帧仅一次 fillRect。
  */
 const BACKGROUND_LIGHTEN_WASH_COLOR = '#FFF9F0';
-const BACKGROUND_LIGHTEN_WASH_ALPHA = 0.16;
+const BACKGROUND_LIGHTEN_WASH_ALPHA = 0.2;
 
 export function paintPaperBackground(
   context: CanvasRenderingContext2D,

@@ -115,13 +115,17 @@ describe('燃信菜单与页面', () => {
     expect(game.getTestSnapshot().page).toBe('menu');
     closeMenuAndWait(platform, menu);
 
-    // 展示位点按重新进入编辑并确认，收好时序中菜单点按被忽略
+    // 展示位点按进入编辑确认后回到展示位，上滑进入收好，收好时序中菜单点按被忽略
     const cardX = scene.cardRect.left + scene.cardRect.width / 2;
     const cardY = scene.cardRect.top + scene.cardRect.height / 2;
     platform.textResult = '心事';
     click(platform, cardX, cardY);
     await Promise.resolve(); await Promise.resolve();
-    for (let index = 0; index < 6; index += 1) platform.tick(100);
+    for (let index = 0; index < 4; index += 1) platform.tick(100);
+    expect(game.getTestSnapshot().phase).toBe('back');
+    platform.touch('start', cardX, cardY); platform.now += 200;
+    platform.touch('move', cardX, cardY - 180); platform.touch('end', cardX, cardY - 180);
+    for (let index = 0; index < 2; index += 1) platform.tick(100);
     expect(game.getTestSnapshot().phase).toBe('settle');
     click(platform, scene.menuRect.left + 24, scene.menuRect.top + 24);
     expect(game.getTestSnapshot().page).toBe('main');

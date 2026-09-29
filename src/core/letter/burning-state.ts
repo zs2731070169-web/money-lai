@@ -17,10 +17,15 @@ export const SETTLE_DURATION_MS = 450;
 export const REDUCED_SETTLE_DURATION_MS = 150;
 /** 收好完成后的安静窗口：等待匿名计数返回以决定统计句显示，BGM 连续不打断。 */
 export const QUIET_DURATION_MS = 1500;
+/** 展示位上滑收好阈值：位移达屏高比例或释放速度超阈值即入袋；未达则回弹。 */
+export const TUCK_DISTANCE_RATIO = 0.15;
+export const TUCK_SPEED_PX_PER_SECOND = 700;
+export const REBOUND_DURATION_MS = 300;
+export const REDUCED_REBOUND_DURATION_MS = 120;
 export const MAX_FRAME_DELTA_MS = 100;
 export const MAX_LETTER_TEXT_LENGTH = 400;
 
-export type BurningPhase = 'idle' | 'draw' | 'unfold' | 'edit' | 'edit-return' | 'back' | 'settle' | 'quiet' | 'stat';
+export type BurningPhase = 'idle' | 'draw' | 'unfold' | 'edit' | 'edit-return' | 'back' | 'drag' | 'rebound' | 'settle' | 'quiet' | 'stat';
 export type BurningEffect = 'drawn' | 'requestEdit' | 'save' | 'reset';
 
 export interface BurningState {
@@ -32,12 +37,11 @@ export interface BurningState {
   lastY: number;
   lastMs: number;
   offsetY: number;
+  reboundStartOffsetY: number;
   tiltDegrees: number;
   text: string;
   count: number | null;
   wantsStat: boolean;
-  /** 确认触发：回缩动画结束后进入收好而非停留在展示位。 */
-  pendingSettle: boolean;
 }
 
 export interface BurningUpdate {
@@ -48,7 +52,7 @@ export interface BurningUpdate {
 export function createBurningState(): BurningState {
   return {
     phase: 'idle', elapsedMs: 0, pointerId: null, gestureStartY: 0, gestureStartMs: 0,
-    lastY: 0, lastMs: 0, offsetY: 0, tiltDegrees: 0, text: '', count: null, wantsStat: false, pendingSettle: false,
+    lastY: 0, lastMs: 0, offsetY: 0, reboundStartOffsetY: 0, tiltDegrees: 0, text: '', count: null, wantsStat: false,
   };
 }
 
@@ -58,7 +62,7 @@ export function beginDraw(state: BurningState, pointerId: number, y: number, atM
 }
 
 export function movePointer(state: BurningState, pointerId: number, y: number, atMs: number): BurningState {
-  if (state.pointerId !== pointerId || state.phase !== 'draw') return state;
+  if (state.pointerId !== pointerId || (state.phase !== 'draw' && state.phase !== 'drag')) return state;
   const upward = Math.max(0, state.gestureStartY - y);
   const damped = upward * 0.85;
   const lateralHint = (state.lastY - y) * 0.05;
@@ -73,7 +77,8 @@ export function endDraw(state: BurningState, pointerId: number): BurningUpdate {
 }
 
 export function beginEditing(state: BurningState): BurningState {
-  if (state.phase !== 'back') return state;
+  // 展示位与上滑拖拽中的快速点按都可进入编辑（拖拽先被 beginTuck 接住，抬手小位移即视为点按）
+  if (state.phase !== 'back' && state.phase !== 'drag') return state;
   return { ...state, phase: 'edit', elapsedMs: 0, pointerId: null, offsetY: 0, tiltDegrees: 0 };
 }
 
@@ -88,13 +93,37 @@ export function setPostcardText(state: BurningState, text: string): BurningState
 }
 
 /**
- * 退出编辑：willSettle 表示本次为「确认」——回缩动画结束后折回入袋；
- * wantsStat 由编排层按统计节奏预先计算并随收好携带。
+ * 退出编辑：确认与取消都只回缩到展示位停住；收好入袋由展示位上滑手势触发。
  */
-export function finishEditing(state: BurningState, willSettle = false, wantsStat = false): BurningState {
+export function finishEditing(state: BurningState): BurningState {
   return state.phase === 'edit'
-    ? { ...state, phase: 'edit-return', elapsedMs: 0, pointerId: null, offsetY: 0, tiltDegrees: 0, pendingSettle: willSettle, wantsStat: willSettle ? wantsStat : state.wantsStat }
+    ? { ...state, phase: 'edit-return', elapsedMs: 0, pointerId: null, offsetY: 0, tiltDegrees: 0 }
     : state;
+}
+
+/** 展示位按住信纸开始上滑收好拖拽；释放由 endTuck 判定入袋或回弹。 */
+export function beginTuck(state: BurningState, pointerId: number, y: number, atMs: number): BurningState {
+  if (state.phase !== 'back') return state;
+  return { ...state, phase: 'drag', pointerId, gestureStartY: y, gestureStartMs: atMs, lastY: y, lastMs: atMs };
+}
+
+/** 释放判定：位移达屏高比例或速度超阈值进入收好（携带统计节奏意图），否则回弹展示位。 */
+export function endTuck(
+  state: BurningState,
+  pointerId: number,
+  y: number,
+  atMs: number,
+  viewportHeight: number,
+  wantsStat: boolean,
+): BurningUpdate {
+  if (state.phase !== 'drag' || state.pointerId !== pointerId) return { state, effects: [] };
+  const distance = Math.max(0, state.gestureStartY - y);
+  const elapsedSeconds = Math.max(0.001, (atMs - state.gestureStartMs) / 1000);
+  const speed = distance / elapsedSeconds;
+  if (distance >= viewportHeight * TUCK_DISTANCE_RATIO || speed >= TUCK_SPEED_PX_PER_SECOND) {
+    return { state: { ...state, phase: 'settle', elapsedMs: 0, pointerId: null, offsetY: 0, tiltDegrees: 0, wantsStat }, effects: [] };
+  }
+  return { state: { ...state, phase: 'rebound', elapsedMs: 0, pointerId: null, reboundStartOffsetY: state.offsetY }, effects: [] };
 }
 
 export function resolveCount(state: BurningState, count: number | null): BurningState {
@@ -103,7 +132,7 @@ export function resolveCount(state: BurningState, count: number | null): Burning
 
 export function advanceBurningState(state: BurningState, deltaMs: number, reducedMotion = false): BurningUpdate {
   if (!Number.isFinite(deltaMs) || deltaMs <= 0) return { state, effects: [] };
-  if (!['unfold', 'edit', 'edit-return', 'settle', 'quiet', 'stat'].includes(state.phase)) return { state, effects: [] };
+  if (!['unfold', 'edit', 'edit-return', 'rebound', 'settle', 'quiet', 'stat'].includes(state.phase)) return { state, effects: [] };
   let current = state;
   let remainingMs = Math.min(deltaMs, MAX_FRAME_DELTA_MS);
   const effects: BurningEffect[] = [];
@@ -127,14 +156,27 @@ export function advanceBurningState(state: BurningState, deltaMs: number, reduce
       if (remainingMs === 0 || elapsedMs < durationMs) break;
       continue;
     }
+    if (current.phase === 'rebound') {
+      const durationMs = reducedMotion ? REDUCED_REBOUND_DURATION_MS : REBOUND_DURATION_MS;
+      const consumedMs = Math.min(remainingMs, durationMs - current.elapsedMs);
+      const elapsedMs = current.elapsedMs + consumedMs;
+      remainingMs -= consumedMs;
+      if (elapsedMs < durationMs) {
+        const t = elapsedMs / durationMs;
+        const overshoot = 1 - Math.pow(1 - t, 2) * Math.cos(t * Math.PI * 2 * 0.3);
+        current = { ...current, elapsedMs, offsetY: current.reboundStartOffsetY * (1 - overshoot) };
+        break;
+      }
+      current = { ...current, phase: 'back', elapsedMs: 0, offsetY: 0, reboundStartOffsetY: 0, tiltDegrees: 0 };
+      continue;
+    }
     if (current.phase === 'edit-return') {
       const durationMs = reducedMotion ? REDUCED_EDIT_RETURN_DURATION_MS : EDIT_RETURN_DURATION_MS;
       const consumedMs = Math.min(remainingMs, durationMs - current.elapsedMs);
       const elapsedMs = current.elapsedMs + consumedMs;
       remainingMs -= consumedMs;
       if (elapsedMs < durationMs) { current = { ...current, elapsedMs }; break; }
-      // 确认路径折回入袋，取消路径停在展示位等待再编辑
-      current = { ...current, phase: current.pendingSettle ? 'settle' : 'back', elapsedMs: 0, offsetY: 0, tiltDegrees: 0 };
+      current = { ...current, phase: 'back', elapsedMs: 0, offsetY: 0, tiltDegrees: 0 };
       continue;
     }
     if (current.phase === 'settle') {

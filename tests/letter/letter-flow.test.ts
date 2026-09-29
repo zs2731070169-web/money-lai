@@ -23,11 +23,26 @@ async function drawAndFlip(platform: FakePlatform, layout: ReturnType<typeof com
   advancePastUnfold(platform);
 }
 
-/** 确认输入解析完成后推进 edit-return(320ms)+settle(450ms) 两段动画 */
-async function confirmThroughSettle(platform: FakePlatform, layout: ReturnType<typeof computeLetterSceneLayout>) {
+/** 确认输入解析完成后推进 edit-return(320ms) 停到展示位 */
+async function confirmToBack(platform: FakePlatform, layout: ReturnType<typeof computeLetterSceneLayout>) {
   await drawAndFlip(platform, layout);
   await Promise.resolve(); await Promise.resolve();
-  for (let index = 0; index < 9; index += 1) platform.tick(100);
+  for (let index = 0; index < 4; index += 1) platform.tick(100);
+}
+
+/** 展示位上滑释放：位移 180px 触发收好 */
+function swipeUpToTuck(platform: FakePlatform, layout: ReturnType<typeof computeLetterSceneLayout>) {
+  const cardX = layout.cardRect.left + layout.cardRect.width / 2;
+  const cardY = layout.cardRect.top + layout.cardRect.height / 2;
+  platform.touch('start', cardX, cardY); platform.now += 200;
+  platform.touch('move', cardX, cardY - 180); platform.touch('end', cardX, cardY - 180);
+}
+
+/** 确认→展示位→上滑→收好动画走完进入安静等待 */
+async function confirmThroughSettle(platform: FakePlatform, layout: ReturnType<typeof computeLetterSceneLayout>) {
+  await confirmToBack(platform, layout);
+  swipeUpToTuck(platform, layout);
+  for (let index = 0; index < 5; index += 1) platform.tick(100);
 }
 
 /** 挂起多行输入并在主画布上记录 fillText，用于断言输入期间/之后的信纸文字渲染。 */
@@ -73,9 +88,15 @@ describe('信封到收好的端到端链路', () => {
     expect(game.getTestSnapshot().phase).toBe('edit');
   });
 
-  it('抽取、书写、确认收好、保存、匿名计数、统计、复位', async () => {
+  it('抽取、书写、确认回展示位、上滑收好、保存、匿名计数、统计、复位', async () => {
     const { game, platform, layout } = await readyGame('一句话\n第二行');
-    await confirmThroughSettle(platform, layout);
+    await confirmToBack(platform, layout);
+    // 确认只停展示位：未落库、未计数
+    expect(game.getTestSnapshot().phase).toBe('back');
+    expect(game.getTestSnapshot().persisted.journalEntries).toHaveLength(0);
+    expect(platform.countCalls).toBe(0);
+    swipeUpToTuck(platform, layout);
+    for (let index = 0; index < 5; index += 1) platform.tick(100);
     expect(game.getTestSnapshot().phase).toBe('quiet');
     await new Promise((resolve) => setTimeout(resolve, 0));
     for (let index = 0; index < 15; index += 1) platform.tick(100);
@@ -101,7 +122,7 @@ describe('信封到收好的端到端链路', () => {
     expect(game.getTestSnapshot().phase).toBe('edit-return');
   });
 
-  it('空白确认同样收好保存并达成空白成就', async () => {
+  it('空白信纸上滑收好同样保存并达成空白成就', async () => {
     const { game, platform, layout } = await readyGame('');
     await confirmThroughSettle(platform, layout);
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -144,12 +165,19 @@ describe('信封到收好的端到端链路', () => {
     platform.paintedTexts.length = 0; platform.tick(100);
     expect(platform.paintedTexts.join('')).toBe('');
 
-    // 再次点开并确认：收好折回过程中字迹随信纸呈现
+    // 再次点开并确认：字迹落在展示位信纸上（不自动收好）
     const cardX = layout.cardRect.left + layout.cardRect.width / 2; const cardY = layout.cardRect.top + layout.cardRect.height / 2;
     platform.touch('start', cardX, cardY); platform.now += 100; platform.touch('end', cardX, cardY);
     platform.settleDraft('一句话');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    for (let index = 0; index < 6; index += 1) platform.tick(100);
+    for (let index = 0; index < 4; index += 1) platform.tick(100);
+    expect(game.getTestSnapshot().phase).toBe('back');
+    platform.paintedTexts.length = 0; platform.tick(100);
+    expect(platform.paintedTexts.join('')).toContain('一句话');
+
+    // 上滑收好：折回入袋过程中字迹随信纸呈现
+    platform.touch('start', cardX, cardY); platform.now += 200; platform.touch('move', cardX, cardY - 180); platform.touch('end', cardX, cardY - 180);
+    for (let index = 0; index < 2; index += 1) platform.tick(100);
     expect(game.getTestSnapshot().phase).toBe('settle');
     platform.paintedTexts.length = 0; platform.tick(100);
     expect(platform.paintedTexts.join('')).toContain('一句话');

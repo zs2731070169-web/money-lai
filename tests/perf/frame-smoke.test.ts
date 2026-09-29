@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { computeJournalLayout } from '../../src/core/journal/journal-layout';
-import { advanceBurningState, finishEditing, setPostcardText, type BurningState } from '../../src/core/letter/burning-state';
+import { advanceBurningState, beginTuck, endTuck, finishEditing, movePointer, setPostcardText, type BurningState } from '../../src/core/letter/burning-state';
 
 describe('倾诉热路径性能冒烟', () => {
-  it('完整收好链路（书写→确认→折回→安静→统计）按 100ms 帧推进且总帧数有界', () => {
+  it('完整收好链路（书写→确认→展示位→上滑→折回→安静→统计）按 100ms 帧推进且总帧数有界', () => {
     // 抽取展开后进入编辑（unfold 450ms / 5 帧）
     let state: BurningState = { phase: 'edit', text: '' } as BurningState;
     state = setPostcardText(state, '一句话');
-    state = finishEditing(state, true, true);
+    state = finishEditing(state);
+    // 确认只回展示位；上滑释放进入收好
+    while (state.phase !== 'back') state = advanceBurningState(state, 100).state;
+    state = endTuck(movePointer(beginTuck(state, 1, 650, 0), 1, 470, 200), 1, 470, 200, 800, true).state;
     let frames = 0;
     while (state.phase !== 'idle' && frames < 100) {
       state = advanceBurningState(state, 100).state;

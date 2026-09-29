@@ -1,11 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
-  MAX_FRAME_DELTA_MS, MAX_LETTER_TEXT_LENGTH, QUIET_DURATION_MS, REDUCED_UNFOLD_DURATION_MS,
+  MAX_FRAME_DELTA_MS, MAX_LETTER_TEXT_LENGTH, QUIET_DURATION_MS, REBOUND_DURATION_MS, REDUCED_UNFOLD_DURATION_MS,
   SETTLE_DURATION_MS, STAT_DURATION_MS, UNFOLD_DURATION_MS,
-  advanceBurningState, beginDraw, beginEditing, createBurningState,
-  endDraw, finishEditing, movePointer, resolveCount, setPostcardText,
+  advanceBurningState, beginDraw, beginEditing, beginTuck, createBurningState,
+  endDraw, endTuck, finishEditing, movePointer, resolveCount, setPostcardText,
   type BurningState,
 } from '../../src/core/letter/burning-state';
+
+/** 展示位上滑释放：写好文字并回缩停住后，从展示位起拖到 y2 释放 */
+function swipeToTuck(state: BurningState, fromY: number, toY: number, durationMs = 200, viewportHeight = 800, wantsStat = true) {
+  const dragged = movePointer(beginTuck(state, 2, fromY, 0), 2, toY, durationMs);
+  return endTuck(dragged, 2, toY, durationMs, viewportHeight, wantsStat);
+}
+
+/** 推进到 back（编辑回缩或回弹终点） */
+function toBack(state: BurningState): BurningState {
+  return advanceUntil(state, 'back').state;
+}
 
 function advanceUntil(state: ReturnType<typeof createBurningState>, phase: string, reducedMotion = false) {
   let current = state;
@@ -24,16 +35,16 @@ function drawnToEdit(): BurningState {
 }
 
 describe('倾诉收好纯状态机', () => {
-  it('沿完整路径前进：抽取→书写→确认收好→保存→统计→复位，并锁定各时长', () => {
-    let state = drawnToEdit();
+  it('沿完整路径前进：书写→确认回展示位→上滑收好→保存→统计→复位，并锁定各时长', () => {
+    let state = setPostcardText(drawnToEdit(), '一句话\n仍是一行');
     expect(UNFOLD_DURATION_MS).toBe(450);
-    state = setPostcardText(state, '一句话\n仍是一行');
-    // 确认：finishEditing 携带 settle 与统计节奏意图，回缩完成后直接进入收好
-    state = finishEditing(state, true, true);
-    expect(state.phase).toBe('edit-return');
-    state = advanceUntil(state, 'settle').state;
-    expect(state.phase).toBe('settle');
-    const settled = advanceUntil(state, 'quiet');
+    // 确认只回展示位：不自动收好、无 save
+    const returned = advanceUntil(finishEditing(state), 'back');
+    expect(returned.state.phase).toBe('back');
+    expect(returned.effects).not.toContain('save');
+    const tuck = swipeToTuck(returned.state, 650, 480);
+    expect(tuck.state.phase).toBe('settle');
+    const settled = advanceUntil(tuck.state, 'quiet');
     expect(settled.state.phase).toBe('quiet');
     expect(settled.effects).toContain('save');
     expect(SETTLE_DURATION_MS).toBe(450);
@@ -59,33 +70,55 @@ describe('倾诉收好纯状态机', () => {
 
   it('取消不落袋：回缩后停在展示位，文字保留且可再次进入编辑', () => {
     let state = setPostcardText(drawnToEdit(), '保留的心事');
-    state = finishEditing(state, false);
+    state = finishEditing(state);
     state = advanceUntil(state, 'back').state;
     expect(state.phase).toBe('back');
     expect(state.text).toBe('保留的心事');
     expect(beginEditing(state).phase).toBe('edit');
   });
 
-  it('空白确认同样收好并保存', () => {
-    let state = drawnToEdit();
-    state = finishEditing(state, true, false);
-    const settled = advanceUntil(state, 'idle');
+  it('空白信纸上滑收好同样保存', () => {
+    const back = toBack(finishEditing(drawnToEdit()));
+    const settled = advanceUntil(swipeToTuck(back, 650, 480, 200, 800, false).state, 'idle');
     expect(settled.effects).toContain('save');
     expect(settled.effects).toContain('reset');
     expect(settled.state.phase).toBe('idle');
   });
 
   it('不满足统计节奏时收好完成后直接复位，无统计相位', () => {
-    const state = finishEditing(setPostcardText(drawnToEdit(), '内容'), true, false);
-    const done = advanceUntil(state, 'idle');
+    const back = toBack(finishEditing(setPostcardText(drawnToEdit(), '内容')));
+    const done = advanceUntil(swipeToTuck(back, 650, 480, 200, 800, false).state, 'idle');
     expect(done.effects).toContain('save');
     expect(done.effects).toContain('reset');
     expect(done.effects).not.toContain('afterglow');
   });
 
+  it('上滑达屏高 15% 或速度超 700px/s 进入收好', () => {
+    const back = toBack(finishEditing(drawnToEdit()));
+    const byDistance = swipeToTuck(back, 650, 480, 500, 800, false);
+    expect(byDistance.state.phase).toBe('settle');
+    const bySpeed = swipeToTuck(back, 650, 520, 100, 800, false);
+    expect(bySpeed.state.phase).toBe('settle');
+  });
+
+  it('未达阈值 300ms 回弹展示位，文字不丢失；拖拽跟手 0.85 阻尼', () => {
+    const back = toBack(finishEditing(setPostcardText(drawnToEdit(), '保留')));
+    const dragged = movePointer(beginTuck(back, 3, 600, 0), 3, 500, 100);
+    expect(dragged.phase).toBe('drag');
+    expect(dragged.offsetY).toBeCloseTo(-85, 5);
+    // 慢速小幅上滑（80px / 400ms = 200px/s，均未达阈值）→ 回弹
+    const slow = movePointer(beginTuck(back, 3, 600, 0), 3, 520, 400);
+    const rebound = endTuck(slow, 3, 520, 400, 800, false);
+    expect(rebound.state.phase).toBe('rebound');
+    const settledBack = advanceUntil(rebound.state, 'back');
+    expect(settledBack.state.phase).toBe('back');
+    expect(settledBack.state.text).toBe('保留');
+    expect(REBOUND_DURATION_MS).toBe(300);
+  });
+
   it('quiet 结束时计数缺失则跳过统计直接复位（离线降级）', () => {
-    let state = finishEditing(setPostcardText(drawnToEdit(), '内容'), true, true);
-    state = advanceUntil(state, 'quiet').state;
+    const back = toBack(finishEditing(setPostcardText(drawnToEdit(), '内容')));
+    const state = advanceUntil(swipeToTuck(back, 650, 480).state, 'quiet').state;
     const done = advanceUntil(resolveCount(state, null), 'idle');
     expect(done.state.phase).toBe('idle');
     expect(done.effects).toContain('reset');
@@ -100,12 +133,11 @@ describe('倾诉收好纯状态机', () => {
     expect(advanced.elapsedMs).toBe(MAX_FRAME_DELTA_MS);
   });
 
-  it('跨相位保留剩余毫秒：edit-return 完成的同帧开始推进收好', () => {
-    const returning = finishEditing(setPostcardText(drawnToEdit(), '字'), true, false);
+  it('跨相位保留剩余毫秒：edit-return 完成的同帧剩余量推进下一相位', () => {
+    const returning = finishEditing(setPostcardText(drawnToEdit(), '字'));
     const nearEnd: BurningState = { ...returning, elapsedMs: 320 - 50 };
     const crossed = advanceBurningState(nearEnd, 80);
-    expect(crossed.state.phase).toBe('settle');
-    expect(crossed.state.elapsedMs).toBe(30);
+    expect(crossed.state.phase).toBe('back');
   });
 
   it('减弱动态效果时展开与收好均缩短为 150ms', () => {
@@ -114,7 +146,8 @@ describe('倾诉收好纯状态机', () => {
     expect(state.phase).toBe('unfold');
     state = advanceBurningState(state, REDUCED_UNFOLD_DURATION_MS - 100, true).state;
     expect(state.phase).toBe('edit');
-    const settling = advanceUntil(finishEditing(state, true, false), 'idle', true).state;
+    const back = advanceUntil(finishEditing(state), 'back', true).state;
+    const settling = advanceUntil(swipeToTuck(back, 650, 480, 200, 800, false).state, 'idle', true).state;
     expect(settling.phase).toBe('idle');
   });
 

@@ -8,8 +8,8 @@ import {
   serializeLetterBurningState, settleCompletedPostcard, type LetterBurningPersistedState,
 } from './journal/journal-state';
 import {
-  MAX_LETTER_TEXT_LENGTH, advanceBurningState, beginDraw, beginEditing, createBurningState,
-  endDraw, finishEditing, movePointer, resolveCount, setPostcardText,
+  MAX_LETTER_TEXT_LENGTH, advanceBurningState, beginDraw, beginEditing, beginTuck, createBurningState,
+  endDraw, endTuck, finishEditing, movePointer, resolveCount, setPostcardText,
   type BurningEffect, type BurningState,
 } from './letter/burning-state';
 import { DEFAULT_POSTCARD_ID, chooseNextPostcardId } from './letter/postcard-catalog';
@@ -221,6 +221,8 @@ export class Game {
       if (containsPoint(layout.menuRect, point.positionX, point.positionY) && canOpenMenu(this.burning.phase)) return;
       if (this.burning.phase === 'idle' && containsPoint(layout.envelopeGrabRect, point.positionX, point.positionY)) {
         this.burning = beginDraw(this.burning, point.pointerId, point.positionY, now);
+      } else if (this.burning.phase === 'back' && containsPoint(layout.cardRect, point.positionX, point.positionY)) {
+        this.burning = beginTuck(this.burning, point.pointerId, point.positionY, now);
       }
       return;
     }
@@ -241,12 +243,23 @@ export class Game {
       const update = endDraw(this.burning, point.pointerId); this.burning = update.state; this.audio.finishEnvelopeDrawOutGesture(); this.consumeEffects(update.effects); return;
     }
     if (this.burning.phase === 'back') {
-      // 展示位点按信纸重新进入编辑（收好由「确认」触发，不再有甩出手势）
+      // 展示位点按信纸重新进入编辑；上滑收好在 drag 分支判定
       const distance = Math.hypot(point.positionX - start.x, point.positionY - start.y);
       if (distance < 10 && now - start.atMs < 450 && containsPoint(layout.cardRect, point.positionX, point.positionY)) {
         this.burning = beginEditing(this.burning);
         void this.editPostcardText();
       }
+      return;
+    }
+    if (this.burning.phase === 'drag') {
+      // 释放判定上滑收好：小位移短时点按回编辑，达阈值折回入袋，未达回弹展示位
+      const distance = Math.hypot(point.positionX - start.x, point.positionY - start.y);
+      if (distance < 10 && now - start.atMs < 450) {
+        this.burning = beginEditing(this.burning); void this.editPostcardText(); return;
+      }
+      const wantsStat = shouldDisplayBurnCount(this.persisted.statCadenceCount + 1);
+      const update = endTuck(this.burning, point.pointerId, point.positionY, now, viewport.height, wantsStat);
+      this.burning = update.state; this.consumeEffects(update.effects);
     }
   }
 
@@ -254,7 +267,6 @@ export class Game {
     if (this.inputActive || this.burning.phase !== 'edit' || this.page !== 'main') return;
     this.inputActive = true;
     let pausedForMenu = false;
-    let confirmed = false;
     try {
       const viewport = this.platform.getLogicalViewportSize();
       const layout = computeLetterSceneLayout(viewport.width, viewport.height, this.platform.getSafeAreaInsets());
@@ -269,17 +281,10 @@ export class Game {
         this.burning = setPostcardText(this.burning, result.draft);
         pausedForMenu = true;
         this.openMenuPanel();
-      } else if (result !== null) {
-        this.burning = setPostcardText(this.burning, result);
-        confirmed = true;
-      }
+      } else if (result !== null) this.burning = setPostcardText(this.burning, result);
     } finally {
       this.inputActive = false;
-      if (!pausedForMenu) {
-        // 确认即一次倾诉完成：回缩后折回入袋并按统计节奏收好；取消停在展示位
-        const wantsStat = confirmed && shouldDisplayBurnCount(this.persisted.statCadenceCount + 1);
-        this.burning = finishEditing(this.burning, confirmed, wantsStat);
-      }
+      if (!pausedForMenu) this.burning = finishEditing(this.burning);
     }
   }
 

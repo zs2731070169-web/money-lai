@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  MAX_FRAME_DELTA_MS, MAX_LETTER_TEXT_LENGTH, QUIET_DURATION_MS, REDUCED_EDIT_RETURN_DURATION_MS, REDUCED_SETTLE_DURATION_MS, REDUCED_UNFOLD_DURATION_MS,
+  MAX_FRAME_DELTA_MS, MAX_LETTER_TEXT_LENGTH, QUIET_DURATION_MS, REDUCED_UNFOLD_DURATION_MS,
   SETTLE_DURATION_MS, STAT_DURATION_MS, UNFOLD_DURATION_MS,
   advanceBurningState, beginDraw, beginEditing, createBurningState,
   endDraw, finishEditing, movePointer, resolveCount, setPostcardText,

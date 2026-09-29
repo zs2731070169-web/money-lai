@@ -12,8 +12,8 @@ describe('燃信静态文案', () => {
     const values = [...Object.values(COPY), ...Object.values(POSTCARD_NAMES), ...Object.values(ACHIEVEMENT_COPY).flatMap((item) => [item.name, item.description]), ...BACK_PROMPTS];
     const banned = ['会好的', '诊断', '抑郁', '殡葬', '消灭', '毁掉', '抹去', '烧掉烦恼'];
     for (const text of values) for (const word of banned) expect(text).not.toContain(word);
-    expect(formatBurnCount(17)).toBe('17 张明信片已被燃烧');
-    expect(values.filter((text) => text.includes('张明信片已被燃烧'))).toEqual([COPY.statSuffix]);
+    expect(formatBurnCount(17)).toBe('17 张信纸已被收好');
+    expect(values.filter((text) => text.includes('张信纸已被收好'))).toEqual([COPY.statSuffix]);
   });
 
   it('浮出文案不超过 12 个汉字，核心其他文件不散落中文字符串', () => {

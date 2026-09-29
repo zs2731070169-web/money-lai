@@ -1,7 +1,5 @@
-import { createSeededRandomNumberGenerator } from '../utility/deterministic-random';
 import { createGenerativePianoPlanner, midiNoteToFrequencyHertz, type GenerativePianoPlanner } from './bgm-planner';
 import { createBgmReverbChain, scheduleGenerativePianoNote } from './bgm-player';
-import { scheduleBurningNoise, scheduleExtinguish, scheduleIgnition } from './fire-sound';
 import { AUDIO_SYNTHESIS_PARAMETERS } from './parameters';
 
 export interface AudioEngineOptions { createAudioContext: () => BaseAudioContext | null }
@@ -20,7 +18,6 @@ export class AudioEngine {
   private context: BaseAudioContext | null = null;
   private sfxBus: GainNode | null = null;
   private bgmBus: GainNode | null = null;
-  private noise: AudioBuffer | null = null;
   private unlocked = false;
   private reunlockRequired = false;
   /** 随包「信纸抽出」素材：原始字节在启动时注入，首次发声时才解码（音频上下文保持惰性创建）。 */
@@ -51,10 +48,6 @@ export class AudioEngine {
       this.bgmBus = context.createGain(); this.bgmBus.gain.value = 0; this.bgmBus.connect(lowpass);
     }
     return context;
-  }
-  private noiseBuffer(context: BaseAudioContext): AudioBuffer | null {
-    if (this.noise) return this.noise;
-    try { const buffer = context.createBuffer(1, context.sampleRate * 4, context.sampleRate); const data = buffer.getChannelData(0); const random = createSeededRandomNumberGenerator(0x1e77e7); for (let index = 0; index < data.length; index += 1) data[index] = random() * 2 - 1; this.noise = buffer; return buffer; } catch { return null; }
   }
   isUnlocked(): boolean { return this.unlocked; }
   isReunlockRequired(): boolean { return this.reunlockRequired; }
@@ -134,14 +127,10 @@ export class AudioEngine {
     playbackGain.connect(this.sfxBus);
     source.start();
   }
-  ignite(): void {
-    if (!this.unlocked) return; const context = this.ensurePipeline(); if (!context || !this.sfxBus) return; const noise = this.noiseBuffer(context); if (!noise) return;
-    scheduleIgnition(context, this.sfxBus, noise, context.currentTime, AUDIO_SYNTHESIS_PARAMETERS.ignition); scheduleBurningNoise(context, this.sfxBus, noise, context.currentTime, AUDIO_SYNTHESIS_PARAMETERS.burn);
-  }
-  extinguish(): void {
-    if (!this.unlocked) return; const context = this.ensurePipeline(); if (!context || !this.sfxBus) return; const noise = this.noiseBuffer(context); if (!noise) return;
-    scheduleExtinguish(context, this.sfxBus, noise, context.currentTime, AUDIO_SYNTHESIS_PARAMETERS.extinguish);
-    if (this.bgmDry && this.bgmWet) scheduleGenerativePianoNote(context, this.bgmDry, this.bgmWet, { startAtSeconds: context.currentTime, frequencyHertz: midiNoteToFrequencyHertz(52), velocity: 0.28, durationSeconds: 2.2, layer: 'chord' });
+  /** 确认收好后的收束长音：低音域钢琴单音自然衰减约 2s，无操作音效。 */
+  settleLongNote(): void {
+    if (!this.unlocked) return; const context = this.ensurePipeline(); if (!context || !this.bgmDry || !this.bgmWet) return;
+    scheduleGenerativePianoNote(context, this.bgmDry, this.bgmWet, { startAtSeconds: context.currentTime, frequencyHertz: midiNoteToFrequencyHertz(52), velocity: 0.28, durationSeconds: 2.2, layer: 'chord' });
   }
   startBgm(): void {
     const context = this.ensurePipeline(); if (!this.unlocked || !context || !this.bgmBus || this.bgmPlaying) return;

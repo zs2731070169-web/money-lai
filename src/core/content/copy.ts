@@ -13,25 +13,25 @@ export const COPY = {
   agree: '同意并进入',
   privacyPolicy: '隐私',
   localOnly: '这些东西只在这台设备上。',
-  mileage: '里程',
+  mileage: '心里话里程',
   themes: '主题',
   themeSetSummary: '信封 · 信纸 · 背景',
   fontPackages: '字体',
   fontPackageSelectedSuffix: ' · 已选',
   achievements: '成就',
   journal: '手帐',
-  clearJournal: '烧掉整本手帐',
-  clearConfirm: '确认清空手帐与已收集明信片？',
+  clearJournal: '清空整本手帐',
+  clearConfirm: '确认清空手帐与已收集明信纸？',
   cancel: '取消',
   confirm: '确认',
   back: '返回',
   backLabel: '‹ 返回',
-  mileageCompleted: '本机完成的明信片',
+  mileageCompleted: '本机收好的心里话',
   themeSelectedSuffix: ' · 已选',
   unavailable: '暂不可用',
   saveFailed: '记录未能保存',
   now: '此刻',
-  statSuffix: '张明信片已被燃烧',
+  statSuffix: '张信纸已被收好',
 } as const;
 
 export const FONT_PACKAGE_COPY = {
@@ -49,10 +49,10 @@ export const POSTCARD_NAMES = {
 } as const;
 
 export const ACHIEVEMENT_COPY = {
-  'first-draw': { name: '第一封', description: '第一次从信封取出明信片' },
-  'first-burn': { name: '一点火光', description: '完成第一张明信片' },
-  'first-blank': { name: '留白', description: '完成一张空白明信片' },
-  'mileage-10': { name: '十张纸', description: '本机明信片里程达到十张' },
+  'first-draw': { name: '第一封', description: '第一次从信封取出信纸' },
+  'first-burn': { name: '第一次倾诉', description: '第一次确认收好心里的信' },
+  'first-blank': { name: '留白', description: '收好一张没写字的信纸' },
+  'mileage-10': { name: '十张纸', description: '本机心里话里程达到十张' },
 } as const;
 
 export const FLOATING_COPY = [

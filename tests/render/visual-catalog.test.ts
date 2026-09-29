@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createBurningState } from '../../src/core/letter/burning-state';
 import { POSTCARD_CATALOG } from '../../src/core/letter/postcard-catalog';
-import { createBurnGeometryBuffer } from '../../src/core/render/burn-geometry';
 import { computeLetterSceneLayout } from '../../src/core/render/letter-layout';
 import { paintLetterScene } from '../../src/core/render/letter-painter';
 import { LETTER_THEMES } from '../../src/core/render/letter-theme';
@@ -17,7 +16,7 @@ describe('真实位图目录与信的主题组合', () => {
     const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 }); let combinations = 0;
     const openEnvelope = { id: 'open-envelope' } as unknown as CanvasImageSource;
     const letterPaper = { id: 'letter-paper' } as unknown as CanvasImageSource;
-    for (const postcard of POSTCARD_CATALOG) for (const _theme of themes) {
+    for (const _postcard of POSTCARD_CATALOG) for (const _theme of themes) {
       const draws: unknown[][] = [];
       paintLetterScene(contextStub(draws), { width: 402, height: 874, layout, state: { ...createBurningState(), phase: 'back' }, menuGlowProgress: 0, assets: { openEnvelope, letterPaper } });
       expect(draws.some((args) => args[0] === openEnvelope)).toBe(true);

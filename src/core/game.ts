@@ -17,10 +17,9 @@ import { FONT_PACKAGES, fontStackForPackage } from './render/letter-font';
 import { LETTER_THEMES, letterThemeById } from './render/letter-theme';
 import type { NormalizedTouchPoint, PlatformAdapter, PrimaryCanvas, TouchPhase } from './platform';
 import { computeFontPackageItemRects, computePageItemRects, hitJournalCell, journalClearRect, pageBackRect, paintAppOverlay } from './render/app-overlay-painter';
-import { createBurnGeometryBuffer } from './render/burn-geometry';
 import { paintAdaptiveBackground, planAdaptiveBackground } from './render/background-composition';
 import { computeLetterSceneLayout, containsPoint } from './render/letter-layout';
-import { paintLetterScene, paintPageBurn, type LetterSceneAssets } from './render/letter-painter';
+import { paintLetterScene, paintPageFade, type LetterSceneAssets } from './render/letter-painter';
 import { computeMenuLayout, type AppPage, type MenuAction } from './render/menu-layout';
 
 const TRANSITION_DURATION_MS = 600;
@@ -102,7 +101,6 @@ export class Game {
   private notice: { text: string; until: number } | null = null;
   private savingCycle = false;
   private cycleId = 0;
-  private readonly clearBurnGeometry = createBurnGeometryBuffer();
 
   private readonly envelopeDrawOutAudioUrl: string | null;
 
@@ -362,7 +360,7 @@ export class Game {
   private consumeEffects(effects: readonly BurningEffect[]): void {
     for (const effect of effects) {
       if (effect === 'requestEdit') void this.editPostcardText();
-      else if (effect === 'save') { this.audio.extinguish(); void this.completePostcard(); }
+      else if (effect === 'save') { this.audio.settleLongNote(); void this.completePostcard(); }
       else if (effect === 'reset') { this.cycleId += 1; this.savingCycle = false; this.chooseNextCard(); }
     }
   }
@@ -469,7 +467,7 @@ export class Game {
     paintLetterScene(context, { width: viewport.width, height: viewport.height, layout, state: paperWritingHidden ? { ...this.burning, text: '' } : this.burning, fontPackageId: this.persisted.activeFontPackageId, menuGlowProgress: glowProgress, reducedMotion: this.reducedMotion, assets: this.letterSceneAssets });
     if (this.page !== 'main') paintAppOverlay(context, { width: viewport.width, height: viewport.height, safeArea: safe, page: this.page, state: this.persisted, journalScroll: this.journalScroll, selectedEntryIndex: this.selectedJournalEntry, menuSlideRatio: this.menuPanelSlideRatio(), background: this.letterSceneAssets.background, backgroundComposed: this.letterSceneAssets.backgroundComposed, openEnvelope: this.letterSceneAssets.openEnvelope, letterPaper: this.letterSceneAssets.letterPaper });
     if (this.transitionElapsedMs !== null) { const durationMs = this.reducedMotion ? REDUCED_TRANSITION_DURATION_MS : TRANSITION_DURATION_MS; const ratio = Math.min(1, this.transitionElapsedMs / durationMs); context.fillStyle = `rgba(78,61,49,${0.38 * Math.sin(ratio * Math.PI)})`; context.fillRect(0, 0, viewport.width, viewport.height); }
-    if (this.clearJournalElapsedMs !== null) paintPageBurn(context, viewport.width, viewport.height, Math.min(1, this.clearJournalElapsedMs / CLEAR_JOURNAL_DURATION_MS), this.clearBurnGeometry, 104729);
+    if (this.clearJournalElapsedMs !== null) paintPageFade(context, viewport.width, viewport.height, Math.min(1, this.clearJournalElapsedMs / CLEAR_JOURNAL_DURATION_MS));
     if (this.notice && this.notice.until > this.platform.nowMilliseconds()) { context.save(); context.fillStyle = 'rgba(73,88,83,.82)'; context.font = "13px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center'; context.fillText(this.notice.text, viewport.width / 2, viewport.height - safe.bottom - 34); context.restore(); } else if (this.notice) this.notice = null;
   }
 

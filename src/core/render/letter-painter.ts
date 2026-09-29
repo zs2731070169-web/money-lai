@@ -2,16 +2,10 @@ import { COPY } from '../content/copy';
 import type { BurningState } from '../letter/burning-state';
 import { EDIT_ENTER_DURATION_MS, EDIT_RETURN_DURATION_MS, REDUCED_EDIT_ENTER_DURATION_MS, REDUCED_EDIT_RETURN_DURATION_MS, REDUCED_SETTLE_DURATION_MS, REDUCED_UNFOLD_DURATION_MS, SETTLE_DURATION_MS, UNFOLD_DURATION_MS, statAlpha } from '../letter/burning-state';
 import { ENVELOPE_ASSET_ANCHORS, type LetterSceneLayout, type Rect } from './letter-layout';
-import type { BurnGeometryBuffer } from './burn-geometry';
-import { updateBurnGeometryInto } from './burn-geometry';
 import { BACKGROUND_SOURCE_HEIGHT as BACKGROUND_PIXEL_HEIGHT, BACKGROUND_SOURCE_WIDTH as BACKGROUND_PIXEL_WIDTH } from './background-composition';
 import { DEFAULT_FONT_PACKAGE_ID, fontStackForPackage, type FontPackageId } from './letter-font';
 
 const INK = '#354940';
-/** 手帐整本清空的焦边色（主循环燃烧已移除，仅清空转场沿用至纸面渐隐替换）。 */
-const PAGE_BURN_EDGE_COLOR = '#49372F';
-const PAGE_BURN_FLAME_COLOR = '#D85A30';
-const PAGE_BURN_CORE_COLOR = '#BA7517';
 export interface LetterSceneAssets {
   background?: CanvasImageSource | null;
   /** 竖屏下按视口离屏合成的背景（视口比例、整幅拉伸绘制），优先于 background。 */
@@ -423,18 +417,14 @@ export function paintLetterScene(context: CanvasRenderingContext2D, options: Let
   context.restore();
 }
 
-/** 清空手帐时复用同一连续火线；不产生单独粒子或网络效果。 */
-export function paintPageBurn(
+/** 清空手帐的克制纸面渐隐：整页随进度沉入暖纸底色，无火焰与粒子。 */
+export function paintPageFade(
   context: CanvasRenderingContext2D,
   width: number,
   height: number,
   progress: number,
-  geometry: BurnGeometryBuffer,
-  seed: number,
 ): void {
-  const rect = { left: 0, top: 0, width, height };
-  updateBurnGeometryInto(geometry, rect, progress, seed);
-  context.save(); context.fillStyle = 'rgba(73,55,47,.76)'; context.fillRect(0, 0, width, Math.max(0, height * progress - 7));
-  context.beginPath(); context.moveTo(geometry.lineX[0], geometry.lineY[0]); for (let index = 1; index < geometry.lineX.length; index += 1) context.lineTo(geometry.lineX[index], geometry.lineY[index]);
-  context.strokeStyle = PAGE_BURN_EDGE_COLOR; context.lineWidth = 10; context.stroke(); context.strokeStyle = PAGE_BURN_FLAME_COLOR; context.lineWidth = 7; context.stroke(); context.strokeStyle = PAGE_BURN_CORE_COLOR; context.lineWidth = 3; context.stroke(); context.restore();
+  const ratio = Math.max(0, Math.min(1, progress));
+  if (ratio <= 0) return;
+  context.save(); context.fillStyle = `rgba(247,239,228,${ratio})`; context.fillRect(0, 0, width, height); context.restore();
 }

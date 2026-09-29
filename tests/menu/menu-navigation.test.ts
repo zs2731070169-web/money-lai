@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Game } from '../../src/core/game';
-import { LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, createEmptyLetterBurningState, serializeLetterBurningState, settleCompletedPostcard } from '../../src/core/journal/journal-state';
+import { LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, createEmptyLetterLetterState, serializeLetterLetterState, settleCompletedPostcard } from '../../src/core/journal/journal-state';
 import { computeLetterSceneLayout } from '../../src/core/render/letter-layout';
 import { computeFontPackageItemRects, computePageItemRects, journalClearRect } from '../../src/core/render/app-overlay-painter';
 import { computeMenuLayout } from '../../src/core/render/menu-layout';
@@ -41,9 +41,9 @@ async function openJournalPage(platform: FakePlatform, menu: ReturnType<typeof c
 
 async function preparedGame() {
   const platform = new FakePlatform(); platform.storage.set(PRIVACY_CONSENT_STORAGE_KEY, 'true');
-  let state = createEmptyLetterBurningState();
+  let state = createEmptyLetterLetterState();
   state = settleCompletedPostcard(state, { id: 'a', createdAtIso: '2026-09-28T00:00:00.000Z', patternId: 'postcard-01', text: '隐藏文字' });
-  platform.storage.set(LETTER_BURNING_STORAGE_KEY, serializeLetterBurningState(state));
+  platform.storage.set(LETTER_BURNING_STORAGE_KEY, serializeLetterLetterState(state));
   const game = new Game({ platformAdapter: platform, privacyPolicyUrl: 'https://example.test/privacy' }); await game.start(); platform.tick(0);
   const scene = computeLetterSceneLayout(platform.viewport.width, platform.viewport.height, platform.safe);
   click(platform, scene.menuRect.left + 24, scene.menuRect.top + 24);
@@ -263,11 +263,11 @@ describe('燃信菜单与页面', () => {
     expect(game.getTestSnapshot().page).toBe('journal');
   });
 
-  it('手帐页页脚提供烧掉整本手帐入口，确认后播放整页燃烧且不调用公开计数', async () => {
+  it('手帐页右上角提供清空整本手帐入口，确认后播放整页燃烧且不调用公开计数', async () => {
     const { platform, game, menu } = await preparedGame();
     await openJournalPage(platform, menu);
     expect(game.getTestSnapshot().page).toBe('journal');
-    const clearEntry = journalClearRect(platform.viewport.width, platform.viewport.height, platform.safe);
+    const clearEntry = journalClearRect(platform.viewport.width, platform.safe);
     click(platform, clearEntry.left + clearEntry.width / 2, clearEntry.top + clearEntry.height / 2); await Promise.resolve();
     expect(game.getTestSnapshot().clearJournalActive).toBe(true);
     for (let index = 0; index < 27; index += 1) platform.tick(100);
@@ -279,13 +279,13 @@ describe('燃信菜单与页面', () => {
   it('取消清空或落库失败时完整保留原手帐', async () => {
     const cancelled = await preparedGame(); cancelled.platform.confirmation = false;
     await openJournalPage(cancelled.platform, cancelled.menu);
-    const entry = journalClearRect(cancelled.platform.viewport.width, cancelled.platform.viewport.height, cancelled.platform.safe);
+    const entry = journalClearRect(cancelled.platform.viewport.width, cancelled.platform.safe);
     click(cancelled.platform, entry.left + entry.width / 2, entry.top + entry.height / 2); await Promise.resolve();
     expect(cancelled.game.getTestSnapshot().clearJournalActive).toBe(false); expect(cancelled.game.getTestSnapshot().persisted.journalEntries).toHaveLength(1);
 
     const failed = await preparedGame(); failed.platform.storageWritesSucceed = false;
     await openJournalPage(failed.platform, failed.menu);
-    const failedEntry = journalClearRect(failed.platform.viewport.width, failed.platform.viewport.height, failed.platform.safe);
+    const failedEntry = journalClearRect(failed.platform.viewport.width, failed.platform.safe);
     click(failed.platform, failedEntry.left + failedEntry.width / 2, failedEntry.top + failedEntry.height / 2); await Promise.resolve();
     for (let index = 0; index < 27; index += 1) failed.platform.tick(100);
     await Promise.resolve();

@@ -1,6 +1,6 @@
 import { COPY } from '../content/copy';
-import type { BurningState } from '../letter/burning-state';
-import { EDIT_ENTER_DURATION_MS, EDIT_RETURN_DURATION_MS, REDUCED_EDIT_ENTER_DURATION_MS, REDUCED_EDIT_RETURN_DURATION_MS, REDUCED_SETTLE_DURATION_MS, REDUCED_UNFOLD_DURATION_MS, SETTLE_DURATION_MS, UNFOLD_DURATION_MS, statAlpha } from '../letter/burning-state';
+import type { LetterState } from '../letter/letter-state';
+import { EDIT_ENTER_DURATION_MS, EDIT_RETURN_DURATION_MS, REDUCED_EDIT_ENTER_DURATION_MS, REDUCED_EDIT_RETURN_DURATION_MS, REDUCED_SETTLE_DURATION_MS, REDUCED_UNFOLD_DURATION_MS, SETTLE_DURATION_MS, UNFOLD_DURATION_MS, statAlpha } from '../letter/letter-state';
 import { ENVELOPE_ASSET_ANCHORS, type LetterSceneLayout, type Rect } from './letter-layout';
 import { BACKGROUND_SOURCE_HEIGHT as BACKGROUND_PIXEL_HEIGHT, BACKGROUND_SOURCE_WIDTH as BACKGROUND_PIXEL_WIDTH } from './background-composition';
 import { DEFAULT_FONT_PACKAGE_ID, fontStackForPackage, type FontPackageId } from './letter-font';
@@ -229,7 +229,7 @@ function paintEnvelopeAssetLayer(
 }
 
 export interface LetterScenePaintOptions {
-  width: number; height: number; layout: LetterSceneLayout; state: BurningState;
+  width: number; height: number; layout: LetterSceneLayout; state: LetterState;
   menuGlowProgress: number;
   fontPackageId?: FontPackageId;
   reducedMotion?: boolean;
@@ -323,7 +323,7 @@ function interpolateRect(from: Rect, to: Rect, progress: number): Rect {
  * 回缩时先让信纸回到卡片附近，再显现信封前袋（前袋不抢盖回收动画开头）。
  * 收好折回入袋时前袋随进度渐进遮回；入袋后的安静/统计阶段保持完全遮盖。
  */
-function editReturnFrontAlpha(state: BurningState, reducedMotion = false): number {
+function editReturnFrontAlpha(state: LetterState, reducedMotion = false): number {
   if (state.phase === 'settle') {
     // 前袋在后半程渐进遮回：先看清信纸折入，临近入袋时前袋合拢
     const durationMs = reducedMotion ? REDUCED_SETTLE_DURATION_MS : SETTLE_DURATION_MS;

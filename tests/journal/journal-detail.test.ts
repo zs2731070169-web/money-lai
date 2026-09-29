@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createEmptyLetterBurningState, settleCompletedPostcard } from '../../src/core/journal/journal-state';
+import { createEmptyLetterLetterState, settleCompletedPostcard } from '../../src/core/journal/journal-state';
 import { paintAppOverlay } from '../../src/core/render/app-overlay-painter';
 
 interface RecordedFillText { text: string; x: number; y: number; maxWidth?: number; font: string }
@@ -36,7 +36,7 @@ const VIEWPORT = { width: 402, height: 874, safeArea: { top: 62, bottom: 34, lef
 describe('手帐详情放大信纸阅览', () => {
   it('长文详情逐行绘制在书写区内，不整段压扁成单行', () => {
     const bodyText = `${'前'.repeat(60)}\n${'后'.repeat(60)}`;
-    const state = settleCompletedPostcard(createEmptyLetterBurningState(), {
+    const state = settleCompletedPostcard(createEmptyLetterLetterState(), {
       id: 'a', createdAtIso: '2026-09-28T00:00:00.000Z', patternId: 'postcard-01', text: bodyText,
     });
     const recording = createRecordingContext();
@@ -61,7 +61,7 @@ describe('手帐详情放大信纸阅览', () => {
   });
 
   it('空记录详情只显示放大的信纸与日期，不绘制正文', () => {
-    const state = settleCompletedPostcard(createEmptyLetterBurningState(), {
+    const state = settleCompletedPostcard(createEmptyLetterLetterState(), {
       id: 'a', createdAtIso: '2026-09-28T00:00:00.000Z', patternId: 'postcard-01', text: '',
     });
     const recording = createRecordingContext();

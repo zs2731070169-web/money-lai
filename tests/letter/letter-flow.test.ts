@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { Game, shouldTriggerEnvelopeDrawOut } from '../../src/core/game';
-import { beginDraw, createBurningState, movePointer } from '../../src/core/letter/burning-state';
-import { LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, createEmptyLetterBurningState, serializeLetterBurningState, settleCompletedPostcard, type LetterBurningPersistedState } from '../../src/core/journal/journal-state';
+import { beginDraw, createLetterState, movePointer } from '../../src/core/letter/letter-state';
+import { LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, createEmptyLetterLetterState, serializeLetterLetterState, settleCompletedPostcard, type LetterBurningPersistedState } from '../../src/core/journal/journal-state';
 import { computeLetterSceneLayout, containsPoint } from '../../src/core/render/letter-layout';
 import { FakePlatform } from '../helpers/fake-platform';
 
 async function readyGame(textResult: string | null = '原文', initialState?: LetterBurningPersistedState) {
   const platform = new FakePlatform(); platform.storage.set(PRIVACY_CONSENT_STORAGE_KEY, 'true'); platform.textResult = textResult;
-  if (initialState) platform.storage.set(LETTER_BURNING_STORAGE_KEY, serializeLetterBurningState(initialState));
+  if (initialState) platform.storage.set(LETTER_BURNING_STORAGE_KEY, serializeLetterLetterState(initialState));
   const game = new Game({ platformAdapter: platform }); await game.start(); platform.tick(0);
   return { game, platform, layout: computeLetterSceneLayout(platform.viewport.width, platform.viewport.height, platform.safe) };
 }
@@ -73,7 +73,7 @@ class HeldInputPlatform extends FakePlatform {
 
 describe('信封到收好的端到端链路', () => {
   it('抽取音效在首次小步上移时也能触发，不要求单帧达到 1px', () => {
-    const drawing = beginDraw(createBurningState(), 1, 700, 0);
+    const drawing = beginDraw(createLetterState(), 1, 700, 0);
     const moved = movePointer(drawing, 1, 699.5, 16);
     expect(shouldTriggerEnvelopeDrawOut(drawing, moved)).toBe(true);
     expect(shouldTriggerEnvelopeDrawOut(drawing, drawing)).toBe(false);
@@ -131,7 +131,7 @@ describe('信封到收好的端到端链路', () => {
   });
 
   it('偶数节奏与离线计数均按完整时钟链路降级', async () => {
-    const beforeSecond = settleCompletedPostcard(createEmptyLetterBurningState(), { id: 'a', createdAtIso: '2026-09-27T00:00:00.000Z', patternId: 'postcard-01', text: '' });
+    const beforeSecond = settleCompletedPostcard(createEmptyLetterLetterState(), { id: 'a', createdAtIso: '2026-09-27T00:00:00.000Z', patternId: 'postcard-01', text: '' });
     const even = await readyGame('', beforeSecond); even.platform.countResult = 44;
     await confirmThroughSettle(even.platform, even.layout);
     await new Promise((resolve) => setTimeout(resolve, 0));

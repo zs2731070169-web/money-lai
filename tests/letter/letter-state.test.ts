@@ -2,35 +2,35 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_FRAME_DELTA_MS, MAX_LETTER_TEXT_LENGTH, QUIET_DURATION_MS, REBOUND_DURATION_MS, REDUCED_UNFOLD_DURATION_MS,
   SETTLE_DURATION_MS, STAT_DURATION_MS, UNFOLD_DURATION_MS,
-  advanceBurningState, beginDraw, beginEditing, beginTuck, createBurningState,
+  advanceLetterState, beginDraw, beginEditing, beginTuck, createLetterState,
   endDraw, endTuck, finishEditing, movePointer, resolveCount, setPostcardText,
-  type BurningState,
-} from '../../src/core/letter/burning-state';
+  type LetterState,
+} from '../../src/core/letter/letter-state';
 
 /** 展示位上滑释放：写好文字并回缩停住后，从展示位起拖到 y2 释放 */
-function swipeToTuck(state: BurningState, fromY: number, toY: number, durationMs = 200, viewportHeight = 800, wantsStat = true) {
+function swipeToTuck(state: LetterState, fromY: number, toY: number, durationMs = 200, viewportHeight = 800, wantsStat = true) {
   const dragged = movePointer(beginTuck(state, 2, fromY, 0), 2, toY, durationMs);
   return endTuck(dragged, 2, toY, durationMs, viewportHeight, wantsStat);
 }
 
 /** 推进到 back（编辑回缩或回弹终点） */
-function toBack(state: BurningState): BurningState {
+function toBack(state: LetterState): LetterState {
   return advanceUntil(state, 'back').state;
 }
 
-function advanceUntil(state: ReturnType<typeof createBurningState>, phase: string, reducedMotion = false) {
+function advanceUntil(state: ReturnType<typeof createLetterState>, phase: string, reducedMotion = false) {
   let current = state;
   const effects: string[] = [];
   for (let index = 0; index < 200 && current.phase !== phase; index += 1) {
-    const update = advanceBurningState(current, 100, reducedMotion);
+    const update = advanceLetterState(current, 100, reducedMotion);
     current = update.state;
     effects.push(...update.effects);
   }
   return { state: current, effects };
 }
 
-function drawnToEdit(): BurningState {
-  const drawn = endDraw(movePointer(beginDraw(createBurningState(), 1, 700, 0), 1, 600, 100), 1);
+function drawnToEdit(): LetterState {
+  const drawn = endDraw(movePointer(beginDraw(createLetterState(), 1, 700, 0), 1, 600, 100), 1);
   return advanceUntil(drawn.state, 'edit').state;
 }
 
@@ -58,12 +58,12 @@ describe('倾诉收好纯状态机', () => {
   });
 
   it('抽取位移保留为展开起点，抽出成功只发一次 drawn', () => {
-    const release = endDraw(movePointer(beginDraw(createBurningState(), 1, 700, 0), 1, 600, 100), 1);
+    const release = endDraw(movePointer(beginDraw(createLetterState(), 1, 700, 0), 1, 600, 100), 1);
     expect(release.effects).toEqual(['drawn']);
-    expect(endDraw(movePointer(beginDraw(createBurningState(), 1, 700, 0), 1, 690, 100), 1).effects).toEqual([]);
+    expect(endDraw(movePointer(beginDraw(createLetterState(), 1, 700, 0), 1, 690, 100), 1).effects).toEqual([]);
     expect(release.state.phase).toBe('unfold');
     expect(release.state.offsetY).toBe(-85);
-    const partial = advanceBurningState({ ...release.state, elapsedMs: UNFOLD_DURATION_MS - 50 }, 80).state;
+    const partial = advanceLetterState({ ...release.state, elapsedMs: UNFOLD_DURATION_MS - 50 }, 80).state;
     expect(partial.phase).toBe('edit');
     expect(partial.offsetY).toBe(0);
   });
@@ -125,26 +125,26 @@ describe('倾诉收好纯状态机', () => {
   });
 
   it('收好期间触摸无效，后台大步长只推进 100ms', () => {
-    const settling: BurningState = { ...createBurningState(), phase: 'settle' };
+    const settling: LetterState = { ...createLetterState(), phase: 'settle' };
     expect(beginDraw(settling, 2, 100, 0)).toBe(settling);
     expect(beginEditing(settling)).toBe(settling);
-    const advanced = advanceBurningState(settling, 10_000).state;
+    const advanced = advanceLetterState(settling, 10_000).state;
     expect(advanced.phase).toBe('settle');
     expect(advanced.elapsedMs).toBe(MAX_FRAME_DELTA_MS);
   });
 
   it('跨相位保留剩余毫秒：edit-return 完成的同帧剩余量推进下一相位', () => {
     const returning = finishEditing(setPostcardText(drawnToEdit(), '字'));
-    const nearEnd: BurningState = { ...returning, elapsedMs: 320 - 50 };
-    const crossed = advanceBurningState(nearEnd, 80);
+    const nearEnd: LetterState = { ...returning, elapsedMs: 320 - 50 };
+    const crossed = advanceLetterState(nearEnd, 80);
     expect(crossed.state.phase).toBe('back');
   });
 
   it('减弱动态效果时展开与收好均缩短为 150ms', () => {
-    const released = endDraw(movePointer(beginDraw(createBurningState(), 1, 700, 0), 1, 600, 100), 1).state;
-    let state = advanceBurningState(released, 100, true).state;
+    const released = endDraw(movePointer(beginDraw(createLetterState(), 1, 700, 0), 1, 600, 100), 1).state;
+    let state = advanceLetterState(released, 100, true).state;
     expect(state.phase).toBe('unfold');
-    state = advanceBurningState(state, REDUCED_UNFOLD_DURATION_MS - 100, true).state;
+    state = advanceLetterState(state, REDUCED_UNFOLD_DURATION_MS - 100, true).state;
     expect(state.phase).toBe('edit');
     const back = advanceUntil(finishEditing(state), 'back', true).state;
     const settling = advanceUntil(swipeToTuck(back, 650, 480, 200, 800, false).state, 'idle', true).state;
@@ -153,7 +153,7 @@ describe('倾诉收好纯状态机', () => {
 
   it('编辑态保留换行并按 Unicode 码点截断到 400 字', () => {
     expect(MAX_LETTER_TEXT_LENGTH).toBe(400);
-    const back: BurningState = { ...createBurningState(), phase: 'back' };
+    const back: LetterState = { ...createLetterState(), phase: 'back' };
     const editing = beginEditing(back);
     const source = `${'字'.repeat(MAX_LETTER_TEXT_LENGTH - 2)}\n${'字'.repeat(10)}😀末尾`;
     const written = setPostcardText(editing, source);

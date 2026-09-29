@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createBurningState } from '../../src/core/letter/burning-state';
+import { createLetterState } from '../../src/core/letter/letter-state';
 import { computeLetterSceneLayout } from '../../src/core/render/letter-layout';
 import { computeExpandedPaperRect, paintLetterScene, paintPaperWriting } from '../../src/core/render/letter-painter';
 
@@ -77,7 +77,7 @@ describe('倾诉画师', () => {
     const recording = recordingContext();
     const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
     paintLetterScene(recording.context, {
-      width: 402, height: 874, layout, state: { ...createBurningState(), phase: 'settle', elapsedMs: 225, text: '心事' },
+      width: 402, height: 874, layout, state: { ...createLetterState(), phase: 'settle', elapsedMs: 225, text: '心事' },
       menuGlowProgress: 0,
       assets: { openEnvelopeBack: { id: 'back' } as unknown as CanvasImageSource, openEnvelopeFront: { id: 'front' } as unknown as CanvasImageSource, letterPaper: { id: 'paper' } as unknown as CanvasImageSource },
     });
@@ -90,7 +90,7 @@ describe('倾诉画师', () => {
     const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
     // “放回”手势：offsetY 钳回 0，单帧大位移让倾角直接到 8°，纸角原本会绕折线荡出信封底线
     paintLetterScene(recording.context, {
-      width: 402, height: 874, layout, state: { ...createBurningState(), phase: 'draw', tiltDegrees: 8 },
+      width: 402, height: 874, layout, state: { ...createLetterState(), phase: 'draw', tiltDegrees: 8 },
       menuGlowProgress: 0,
     });
     const envelopeBottom = layout.envelopeRect.top + layout.envelopeRect.height;
@@ -109,7 +109,7 @@ describe('倾诉画师', () => {
     const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
     const asset = (id: string) => ({ id }) as unknown as CanvasImageSource;
     paintLetterScene(recording.context, {
-      width: 402, height: 874, layout, state: createBurningState(),
+      width: 402, height: 874, layout, state: createLetterState(),
       menuGlowProgress: 0,
       assets: {
         background: asset('background'), closedEnvelope: asset('closed'),
@@ -129,7 +129,7 @@ describe('倾诉画师', () => {
   it('静置与跟手保持同一张自然半页折纸，松手后才连续展开下半页', () => {
     const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
     const asset = (id: string) => ({ id }) as unknown as CanvasImageSource;
-    const paintPaper = (state: ReturnType<typeof createBurningState>) => {
+    const paintPaper = (state: ReturnType<typeof createLetterState>) => {
       const recording = imageRecordingContext();
       paintLetterScene(recording.context, {
         width: 402, height: 874, layout, state,
@@ -138,10 +138,10 @@ describe('倾诉画师', () => {
       });
       return recording.draws.filter((draw) => draw.id === 'paper');
     };
-    const idle = paintPaper(createBurningState());
-    const draw = paintPaper({ ...createBurningState(), phase: 'draw', offsetY: -36 });
-    const extracting = paintPaper({ ...createBurningState(), phase: 'unfold', offsetY: -72, elapsedMs: 100 });
-    const settling = paintPaper({ ...createBurningState(), phase: 'unfold', offsetY: -72, elapsedMs: 225 });
+    const idle = paintPaper(createLetterState());
+    const draw = paintPaper({ ...createLetterState(), phase: 'draw', offsetY: -36 });
+    const extracting = paintPaper({ ...createLetterState(), phase: 'unfold', offsetY: -72, elapsedMs: 100 });
+    const settling = paintPaper({ ...createLetterState(), phase: 'unfold', offsetY: -72, elapsedMs: 225 });
     expect(idle).toHaveLength(1); expect(draw).toHaveLength(1); expect(extracting).toHaveLength(1); expect(settling).toHaveLength(2);
     for (const call of [idle[0], draw[0], extracting[0], settling[0]]) expect(call.args.slice(0, 4)).toEqual([56, 51, 917, 1409 / 2]);
     expect(draw[0].args.slice(6)).toEqual([layout.foldedCardRect.width, layout.foldedCardRect.height]);
@@ -161,7 +161,7 @@ describe('倾诉画师', () => {
       const recording = imageRecordingContext();
       paintLetterScene(recording.context, {
         width: 402, height: 874, layout,
-        state: { ...createBurningState(), phase, count: phase === 'stat' ? 7 : null },
+        state: { ...createLetterState(), phase, count: phase === 'stat' ? 7 : null },
         menuGlowProgress: 0,
         assets: { openEnvelopeBack: asset('back'), openEnvelopeFront: asset('front'), letterPaper: asset('paper') },
       });
@@ -181,7 +181,7 @@ describe('倾诉画师', () => {
       const recording = imageRecordingContext();
       paintLetterScene(recording.context, {
         width: 402, height: 874, layout,
-        state: { ...createBurningState(), phase: 'settle', elapsedMs, text: '收好' },
+        state: { ...createLetterState(), phase: 'settle', elapsedMs, text: '收好' },
         menuGlowProgress: 0,
         assets: { openEnvelopeBack: asset('back'), openEnvelopeFront: asset('front'), letterPaper: asset('paper') },
       });
@@ -207,7 +207,7 @@ describe('倾诉画师', () => {
       const recording = recordingContext();
       paintLetterScene(recording.context, {
         width: 402, height: 874, layout,
-        state: { ...createBurningState(), phase, text },
+        state: { ...createLetterState(), phase, text },
         menuGlowProgress: 0,
         assets: { background: asset('background'), openEnvelopeBack: asset('back'), openEnvelopeFront: asset('front'), letterPaper: asset('paper') },
       });
@@ -241,7 +241,7 @@ describe('倾诉画师', () => {
     const recording = recordingContext();
     paintLetterScene(recording.context, {
       width: 402, height: 874, layout,
-      state: { ...createBurningState(), phase: 'back', text: '一封信 with all my heart' },
+      state: { ...createLetterState(), phase: 'back', text: '一封信 with all my heart' },
       fontPackageId: 'romantic-literary',
       menuGlowProgress: 0,
       assets: { openEnvelopeBack: { id: 'back' } as unknown as CanvasImageSource, openEnvelopeFront: { id: 'front' } as unknown as CanvasImageSource, letterPaper: { id: 'paper' } as unknown as CanvasImageSource },
@@ -260,7 +260,7 @@ describe('倾诉画师', () => {
       const recording = imageRecordingContext();
       paintLetterScene(recording.context, {
         width: 402, height: 874, layout,
-        state: { ...createBurningState(), phase, elapsedMs, text: '第一行\n第二行' },
+        state: { ...createLetterState(), phase, elapsedMs, text: '第一行\n第二行' },
         menuGlowProgress: 0,
         assets: { background: asset('background'), openEnvelopeBack: asset('back'), openEnvelopeFront: asset('front'), letterPaper: asset('paper') },
       });
@@ -282,7 +282,7 @@ describe('倾诉画师', () => {
     const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
     paintLetterScene(recording.context, {
       width: 402, height: 874, layout,
-      state: { ...createBurningState(), phase: 'stat', elapsedMs: 900, count: 7 },
+      state: { ...createLetterState(), phase: 'stat', elapsedMs: 900, count: 7 },
       menuGlowProgress: 0,
       assets: { openEnvelopeBack: { id: 'back' } as unknown as CanvasImageSource, openEnvelopeFront: { id: 'front' } as unknown as CanvasImageSource, letterPaper: { id: 'paper' } as unknown as CanvasImageSource },
     });
@@ -299,7 +299,7 @@ describe('倾诉画师', () => {
     const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
     const asset = (id: string) => ({ id }) as unknown as CanvasImageSource;
     paintLetterScene(recording.context, {
-      width: 402, height: 874, layout, state: createBurningState(),
+      width: 402, height: 874, layout, state: createLetterState(),
       menuGlowProgress: 0,
       assets: {
         background: asset('background'), backgroundComposed: asset('composed'),

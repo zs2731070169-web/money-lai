@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { createEmptyLetterBurningState, settleCompletedPostcard } from '../../src/core/journal/journal-state';
+import { createEmptyLetterLetterState, settleCompletedPostcard } from '../../src/core/journal/journal-state';
 import { hitJournalCell, paintAppOverlay } from '../../src/core/render/app-overlay-painter';
 
 // 402×874、safeTop 62 → 页眉带为 y∈[62,134)；10 条记录、滚动 200 时第二行格块顶部约 96.97，跨入页眉带
 const VIEWPORT = { width: 402, height: 874, safeArea: { top: 62, bottom: 34, left: 0, right: 0 } };
 
 function journalStateWithEntries(entryCount: number) {
-  let state = createEmptyLetterBurningState();
+  let state = createEmptyLetterLetterState();
   for (let index = 0; index < entryCount; index += 1) {
     state = settleCompletedPostcard(state, { id: `entry-${index}`, createdAtIso: '2026-09-28T00:00:00.000Z', patternId: 'postcard-01', text: '' });
   }

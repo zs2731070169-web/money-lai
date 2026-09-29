@@ -49,10 +49,10 @@ function paintMenu(context: CanvasRenderingContext2D, layout: MenuLayout, slideR
   context.restore();
 }
 
-/** 手帐页底部的「烧掉整本手帐」入口（固定页脚，不随网格滚动）。 */
-export function journalClearRect(width: number, height: number, safe: SafeAreaInsets): Rect {
-  const entryWidth = 220; const entryHeight = 36;
-  return { left: (width - entryWidth) / 2, top: height - safe.bottom - 62, width: entryWidth, height: entryHeight };
+/** 手帐页页眉带右上的「清空整本手帐」入口（与左上返回同层；网格裁剪在页眉带之下，滚动全程可见）。 */
+export function journalClearRect(width: number, safe: SafeAreaInsets): Rect {
+  const entryWidth = 128; const entryHeight = 48;
+  return { left: width - safe.right - entryWidth, top: safe.top + 10, width: entryWidth, height: entryHeight };
 }
 
 function containLetter(rect: Rect, padding: number): Rect {
@@ -89,10 +89,9 @@ function paintJournal(
   }
   context.restore();
   context.fillStyle = INK; context.globalAlpha = 0.56; context.textAlign = 'center'; context.font = "12px ui-rounded,'PingFang SC',sans-serif"; context.fillText(COPY.localOnly, width / 2, layout.noteY); context.globalAlpha = 1;
-  // 页脚入口：烧掉整本手帐（安静置于本机说明上方，与页面基调一致）
-  const clearEntry = journalClearRect(width, height, safe);
-  context.fillStyle = INK; context.globalAlpha = entries.length > 0 ? 0.62 : 0.3; context.font = "13px ui-rounded,'PingFang SC',sans-serif";
-  context.fillText(COPY.clearJournal, clearEntry.left + clearEntry.width / 2, clearEntry.top + clearEntry.height / 2); context.globalAlpha = 1;
+  // 页眉带右上：清空整本手帐入口（右对齐与左上返回镜像，滚动全程不被网格遮挡；命中盒见 journalClearRect）
+  context.fillStyle = INK; context.globalAlpha = entries.length > 0 ? 0.62 : 0.3; context.font = "16px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'right';
+  context.fillText(COPY.clearJournal, width - safe.right - 19, safe.top + 38); context.textAlign = 'center'; context.globalAlpha = 1;
   if (selectedEntryIndex !== null && entries[selectedEntryIndex]) {
     // 点开后放大整封信纸：文字用与书写态相同的换行/字体/混合排版，原格式清楚可读
     const entry = entries[selectedEntryIndex];

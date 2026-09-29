@@ -1,7 +1,6 @@
 /**
- * 心里话倾诉主循环状态机（历史名 burning-state 沿用，能力见 letter-burning→倾诉改造）。
- * 完成语义：书写「确认」后信纸折回入袋（settle），落库结算在收好动画结束触发；
- * 取消则停在展示位（back）可再编辑。燃烧/甩出链路已随产品转向移除。
+ * 心里话倾诉主循环状态机：信封抽取 → 对折展开 → 全屏书写 → 展示位停留 → 上滑收好入袋。
+ * 完成语义：确认/取消只回展示位；上滑释放达阈值进入收好（settle），落库结算在收好动画结束触发。
  */
 export const STAT_FADE_MS = 600;
 export const STAT_HOLD_MS = 1800;
@@ -25,11 +24,11 @@ export const REDUCED_REBOUND_DURATION_MS = 120;
 export const MAX_FRAME_DELTA_MS = 100;
 export const MAX_LETTER_TEXT_LENGTH = 400;
 
-export type BurningPhase = 'idle' | 'draw' | 'unfold' | 'edit' | 'edit-return' | 'back' | 'drag' | 'rebound' | 'settle' | 'quiet' | 'stat';
-export type BurningEffect = 'drawn' | 'requestEdit' | 'save' | 'reset';
+export type LetterPhase = 'idle' | 'draw' | 'unfold' | 'edit' | 'edit-return' | 'back' | 'drag' | 'rebound' | 'settle' | 'quiet' | 'stat';
+export type LetterEffect = 'drawn' | 'requestEdit' | 'save' | 'reset';
 
-export interface BurningState {
-  phase: BurningPhase;
+export interface LetterState {
+  phase: LetterPhase;
   elapsedMs: number;
   pointerId: number | null;
   gestureStartY: number;
@@ -44,24 +43,24 @@ export interface BurningState {
   wantsStat: boolean;
 }
 
-export interface BurningUpdate {
-  state: BurningState;
-  effects: BurningEffect[];
+export interface LetterUpdate {
+  state: LetterState;
+  effects: LetterEffect[];
 }
 
-export function createBurningState(): BurningState {
+export function createLetterState(): LetterState {
   return {
     phase: 'idle', elapsedMs: 0, pointerId: null, gestureStartY: 0, gestureStartMs: 0,
     lastY: 0, lastMs: 0, offsetY: 0, reboundStartOffsetY: 0, tiltDegrees: 0, text: '', count: null, wantsStat: false,
   };
 }
 
-export function beginDraw(state: BurningState, pointerId: number, y: number, atMs: number): BurningState {
+export function beginDraw(state: LetterState, pointerId: number, y: number, atMs: number): LetterState {
   if (state.phase !== 'idle') return state;
   return { ...state, phase: 'draw', pointerId, gestureStartY: y, gestureStartMs: atMs, lastY: y, lastMs: atMs };
 }
 
-export function movePointer(state: BurningState, pointerId: number, y: number, atMs: number): BurningState {
+export function movePointer(state: LetterState, pointerId: number, y: number, atMs: number): LetterState {
   if (state.pointerId !== pointerId || (state.phase !== 'draw' && state.phase !== 'drag')) return state;
   const upward = Math.max(0, state.gestureStartY - y);
   const damped = upward * 0.85;
@@ -69,14 +68,14 @@ export function movePointer(state: BurningState, pointerId: number, y: number, a
   return { ...state, offsetY: -damped, tiltDegrees: Math.max(-8, Math.min(8, lateralHint)), lastY: y, lastMs: atMs };
 }
 
-export function endDraw(state: BurningState, pointerId: number): BurningUpdate {
+export function endDraw(state: LetterState, pointerId: number): LetterUpdate {
   if (state.phase !== 'draw' || state.pointerId !== pointerId) return { state, effects: [] };
-  if (-state.offsetY < 56) return { state: createBurningState(), effects: [] };
+  if (-state.offsetY < 56) return { state: createLetterState(), effects: [] };
   // 进入自动展开：保留 offsetY 作为展开动画的插值起点，展开结束才清零
   return { state: { ...state, phase: 'unfold', elapsedMs: 0, pointerId: null, tiltDegrees: 0 }, effects: ['drawn'] };
 }
 
-export function beginEditing(state: BurningState): BurningState {
+export function beginEditing(state: LetterState): LetterState {
   // 展示位与上滑拖拽中的快速点按都可进入编辑（拖拽先被 beginTuck 接住，抬手小位移即视为点按）
   if (state.phase !== 'back' && state.phase !== 'drag') return state;
   return { ...state, phase: 'edit', elapsedMs: 0, pointerId: null, offsetY: 0, tiltDegrees: 0 };
@@ -86,7 +85,7 @@ export function normalizePostcardText(text: string): string {
   return Array.from(text.replace(/\r\n?/g, '\n')).slice(0, MAX_LETTER_TEXT_LENGTH).join('');
 }
 
-export function setPostcardText(state: BurningState, text: string): BurningState {
+export function setPostcardText(state: LetterState, text: string): LetterState {
   return state.phase === 'edit' || state.phase === 'edit-return' || state.phase === 'back'
     ? { ...state, text: normalizePostcardText(text) }
     : state;
@@ -95,27 +94,27 @@ export function setPostcardText(state: BurningState, text: string): BurningState
 /**
  * 退出编辑：确认与取消都只回缩到展示位停住；收好入袋由展示位上滑手势触发。
  */
-export function finishEditing(state: BurningState): BurningState {
+export function finishEditing(state: LetterState): LetterState {
   return state.phase === 'edit'
     ? { ...state, phase: 'edit-return', elapsedMs: 0, pointerId: null, offsetY: 0, tiltDegrees: 0 }
     : state;
 }
 
 /** 展示位按住信纸开始上滑收好拖拽；释放由 endTuck 判定入袋或回弹。 */
-export function beginTuck(state: BurningState, pointerId: number, y: number, atMs: number): BurningState {
+export function beginTuck(state: LetterState, pointerId: number, y: number, atMs: number): LetterState {
   if (state.phase !== 'back') return state;
   return { ...state, phase: 'drag', pointerId, gestureStartY: y, gestureStartMs: atMs, lastY: y, lastMs: atMs };
 }
 
 /** 释放判定：位移达屏高比例或速度超阈值进入收好（携带统计节奏意图），否则回弹展示位。 */
 export function endTuck(
-  state: BurningState,
+  state: LetterState,
   pointerId: number,
   y: number,
   atMs: number,
   viewportHeight: number,
   wantsStat: boolean,
-): BurningUpdate {
+): LetterUpdate {
   if (state.phase !== 'drag' || state.pointerId !== pointerId) return { state, effects: [] };
   const distance = Math.max(0, state.gestureStartY - y);
   const elapsedSeconds = Math.max(0.001, (atMs - state.gestureStartMs) / 1000);
@@ -126,16 +125,16 @@ export function endTuck(
   return { state: { ...state, phase: 'rebound', elapsedMs: 0, pointerId: null, reboundStartOffsetY: state.offsetY }, effects: [] };
 }
 
-export function resolveCount(state: BurningState, count: number | null): BurningState {
+export function resolveCount(state: LetterState, count: number | null): LetterState {
   return { ...state, count };
 }
 
-export function advanceBurningState(state: BurningState, deltaMs: number, reducedMotion = false): BurningUpdate {
+export function advanceLetterState(state: LetterState, deltaMs: number, reducedMotion = false): LetterUpdate {
   if (!Number.isFinite(deltaMs) || deltaMs <= 0) return { state, effects: [] };
   if (!['unfold', 'edit', 'edit-return', 'rebound', 'settle', 'quiet', 'stat'].includes(state.phase)) return { state, effects: [] };
   let current = state;
   let remainingMs = Math.min(deltaMs, MAX_FRAME_DELTA_MS);
-  const effects: BurningEffect[] = [];
+  const effects: LetterEffect[] = [];
   for (let transitionCount = 0; transitionCount < 6 && remainingMs > 0; transitionCount += 1) {
     if (current.phase === 'unfold') {
       const durationMs = reducedMotion ? REDUCED_UNFOLD_DURATION_MS : UNFOLD_DURATION_MS;
@@ -188,7 +187,7 @@ export function advanceBurningState(state: BurningState, deltaMs: number, reduce
       // 收好完成即结算：落库、里程与匿名计数都由编排层在 'save' 上挂接
       effects.push('save');
       if (current.wantsStat) { current = { ...current, phase: 'quiet', elapsedMs: 0 }; continue; }
-      current = createBurningState(); effects.push('reset'); break;
+      current = createLetterState(); effects.push('reset'); break;
     }
     if (current.phase === 'quiet') {
       const consumedMs = Math.min(remainingMs, QUIET_DURATION_MS - current.elapsedMs);
@@ -197,21 +196,21 @@ export function advanceBurningState(state: BurningState, deltaMs: number, reduce
       if (elapsedMs < QUIET_DURATION_MS) { current = { ...current, elapsedMs }; break; }
       // 计数已返回且本次满足节奏才显示统计句，否则静默复位（离线降级）
       if (current.wantsStat && current.count !== null) { current = { ...current, phase: 'stat', elapsedMs: 0 }; continue; }
-      current = createBurningState(); effects.push('reset'); break;
+      current = createLetterState(); effects.push('reset'); break;
     }
     if (current.phase === 'stat') {
       const consumedMs = Math.min(remainingMs, STAT_DURATION_MS - current.elapsedMs);
       const elapsedMs = current.elapsedMs + consumedMs;
       remainingMs -= consumedMs;
       if (elapsedMs < STAT_DURATION_MS) { current = { ...current, elapsedMs }; break; }
-      current = createBurningState(); effects.push('reset'); break;
+      current = createLetterState(); effects.push('reset'); break;
     }
     break;
   }
   return { state: current, effects };
 }
 
-export function statAlpha(state: BurningState): number {
+export function statAlpha(state: LetterState): number {
   if (state.phase !== 'stat') return 0;
   if (state.elapsedMs < STAT_FADE_MS) return state.elapsedMs / STAT_FADE_MS;
   if (state.elapsedMs < STAT_FADE_MS + STAT_HOLD_MS) return 1;

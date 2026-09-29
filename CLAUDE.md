@@ -12,7 +12,7 @@ npm run launch
 ## 代码地图
 
 - `src/core/game.ts`：启动、帧循环、触点路由与副作用编排。
-- `src/core/letter/`：燃烧状态机与 24 个预置图案。
+- `src/core/letter/`：倾诉主循环状态机（letter-state：抽取→书写→展示位→上滑收好）。
 - `src/core/journal/`：版本化本机状态、虚拟网格和隐私安全的长图画师。
 - `src/core/meta/postcard-progress.ts`：明信片里程、双槽外观与成就。
 - `src/core/render/`：布局、固定采样火线、信封/明信片、页面画师。

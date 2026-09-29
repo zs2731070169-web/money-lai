@@ -1,26 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import {
-  LETTER_BURNING_STORAGE_KEY, activateFontPackage, clearJournal, createEmptyLetterBurningState,
-  parseLetterBurningState, serializeLetterBurningState, settleCompletedPostcard,
+  LETTER_BURNING_STORAGE_KEY, activateFontPackage, clearJournal, createEmptyLetterLetterState,
+  parseLetterLetterState, serializeLetterLetterState, settleCompletedPostcard,
 } from '../../src/core/journal/journal-state';
 
 describe('燃信本地状态', () => {
   it('使用新键，损坏数据与旧钱包数据不会迁移', () => {
     expect(LETTER_BURNING_STORAGE_KEY).toBe('letter-burning/state/v1');
-    expect(parseLetterBurningState('{bad')).toEqual(createEmptyLetterBurningState());
-    expect(parseLetterBurningState(JSON.stringify({ version: 0, lifetimeDrawCount: 999 }))).toEqual(createEmptyLetterBurningState());
+    expect(parseLetterLetterState('{bad')).toEqual(createEmptyLetterLetterState());
+    expect(parseLetterLetterState(JSON.stringify({ version: 0, lifetimeDrawCount: 999 }))).toEqual(createEmptyLetterLetterState());
   });
 
   it('有字与空白记录按写入顺序持久化往返', () => {
-    let state = createEmptyLetterBurningState();
+    let state = createEmptyLetterLetterState();
     state = settleCompletedPostcard(state, { id: 'a', createdAtIso: '2026-09-28T01:00:00.000Z', patternId: 'postcard-01', text: '原文' });
     state = settleCompletedPostcard(state, { id: 'b', createdAtIso: '2026-09-28T02:00:00.000Z', patternId: 'postcard-02', text: '' });
-    expect(parseLetterBurningState(serializeLetterBurningState(state))).toEqual(state);
+    expect(parseLetterLetterState(serializeLetterLetterState(state))).toEqual(state);
     expect(state.journalEntries.map((entry) => entry.id)).toEqual(['a', 'b']);
   });
 
   it('清空只移除手帐和图鉴，保留里程、外观、成就和节奏', () => {
-    const completed = settleCompletedPostcard(createEmptyLetterBurningState(), { id: 'a', createdAtIso: '2026-09-28T01:00:00.000Z', patternId: 'postcard-01', text: '' });
+    const completed = settleCompletedPostcard(createEmptyLetterLetterState(), { id: 'a', createdAtIso: '2026-09-28T01:00:00.000Z', patternId: 'postcard-01', text: '' });
     const cleared = clearJournal(completed);
     expect(cleared.journalEntries).toEqual([]);
     expect(cleared.collectedPatternIds).toEqual([]);
@@ -30,8 +30,8 @@ describe('燃信本地状态', () => {
   });
 
   it('字体套餐选择可持久化且未知值回退', () => {
-    const selected = activateFontPackage(createEmptyLetterBurningState(), 'romantic-literary');
-    expect(parseLetterBurningState(serializeLetterBurningState(selected)).activeFontPackageId).toBe('romantic-literary');
-    expect(parseLetterBurningState(JSON.stringify({ ...selected, activeFontPackageId: 'missing' })).activeFontPackageId).toBe('warm-handwriting');
+    const selected = activateFontPackage(createEmptyLetterLetterState(), 'romantic-literary');
+    expect(parseLetterLetterState(serializeLetterLetterState(selected)).activeFontPackageId).toBe('romantic-literary');
+    expect(parseLetterLetterState(JSON.stringify({ ...selected, activeFontPackageId: 'missing' })).activeFontPackageId).toBe('warm-handwriting');
   });
 });

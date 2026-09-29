@@ -26,7 +26,7 @@ export interface LetterBurningPersistedState {
   statCadenceCount: number;
 }
 
-export function createEmptyLetterBurningState(): LetterBurningPersistedState {
+export function createEmptyLetterLetterState(): LetterBurningPersistedState {
   return {
     version: 1,
     privacyConsent: false,
@@ -45,11 +45,11 @@ function stringArray(value: unknown, allowed?: Set<string>): string[] {
   return [...new Set(value.filter((item): item is string => typeof item === 'string' && (!allowed || allowed.has(item))))];
 }
 
-export function parseLetterBurningState(serialized: string | null): LetterBurningPersistedState {
-  if (!serialized) return createEmptyLetterBurningState();
+export function parseLetterLetterState(serialized: string | null): LetterBurningPersistedState {
+  if (!serialized) return createEmptyLetterLetterState();
   try {
     const value = JSON.parse(serialized) as Record<string, unknown>;
-    if (value.version !== 1) return createEmptyLetterBurningState();
+    if (value.version !== 1) return createEmptyLetterLetterState();
     const entries = Array.isArray(value.journalEntries)
       ? value.journalEntries.flatMap((entry): JournalEntry[] => {
           if (typeof entry !== 'object' || entry === null) return [];
@@ -83,11 +83,11 @@ export function parseLetterBurningState(serialized: string | null): LetterBurnin
         ? Number(value.statCadenceCount) : 0,
     };
   } catch {
-    return createEmptyLetterBurningState();
+    return createEmptyLetterLetterState();
   }
 }
 
-export function serializeLetterBurningState(state: LetterBurningPersistedState): string {
+export function serializeLetterLetterState(state: LetterBurningPersistedState): string {
   return JSON.stringify(state);
 }
 

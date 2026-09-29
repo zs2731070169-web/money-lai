@@ -2,15 +2,17 @@
 
 音频面收敛：保留抽信素材声与低音域生成式钢琴，删除点燃、燃烧声床与火灭余响及其回归断言。
 
-## RENAMED Requirements
+## REMOVED Requirements
 
-- FROM: `### Requirement: 明信片与燃烧声景`
-- TO: `### Requirement: 明信片抽信声`
+### Requirement: 明信片与燃烧声景
+**Reason**: 需求后半为点燃声、燃烧声床与火灭余响的时序规格，随燃烧移除失准。
+**Migration**: 使用「明信片抽信声」：保留抽信素材声全部纪律，燃烧声部不再有替代。
 
-- FROM: `### Requirement: 燃信生成式钢琴`
-- TO: `### Requirement: 倾诉生成式钢琴`
+### Requirement: 燃信生成式钢琴
+**Reason**: 原需求规定「拖拽、点燃、燃烧、火灭与静默全程不中断」与火灭 2s 长音，时序锚点随燃烧消失。
+**Migration**: 使用「倾诉生成式钢琴」：音域与舒缓规格不变，连续性锚点改为拖拽/书写/收好全程，收好后保留 2s 衰减长音。
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: 明信片抽信声
 从信封抽取信纸时，第一次有效位移 SHALL 播放随包素材 `assets/audio/envelop_draw_out.wav`（约 1s 单声道采样），MUST NOT 以代码合成噪声替代；同一抽信手势后续移动 MUST NOT 重复触发成“咔咔咔”，手指停住、松手或回弹后 MUST NOT 继续循环播放。素材在首次发声时才解码，音频上下文保持惰性创建；平台加载本地 `capacitor://` 资源时，即使 XHR 状态码为 0，只要收到非空音频字节也 SHALL 视为加载成功；素材缺失或解码失败时该手势静默（无合成回退）。书写、收好与统计阶段 MUST NOT 播放任何操作音效或提示音。
@@ -58,15 +60,11 @@
 - **WHEN** App 进入后台后再回到前台
 - **THEN** BGM 淡出暂停、随后恢复继续，恢复过程无破音
 
+## MODIFIED Requirements
+
 ### Requirement: 音频回归验证入口
 音效管线 SHALL 提供可重复的离线渲染验证入口，至少覆盖抽出素材播放（含素材缺失时静默、无合成回退）与钢琴叠加，断言峰值幅度不高于 0.9、样本无 NaN、关键时长和频带符合设计规格。
 
 #### Scenario: 回归测试运行
 - **WHEN** 运行音频回归测试
 - **THEN** 核心声部通过峰值、NaN、时长与频带断言
-
-## REMOVED Requirements
-
-### Requirement: 点燃与燃烧声部
-**Reason**: 燃烧交互移除后点燃声、燃烧声床与火灭余响不再有触发场景。
-**Migration**: 无替代声部；收好链路除背景钢琴外保持安静。

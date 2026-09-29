@@ -4,9 +4,6 @@
 
 ## RENAMED Requirements
 
-- FROM: `### Requirement: 燃信极简画面构成`
-- TO: `### Requirement: 倾诉极简画面构成`
-
 - FROM: `### Requirement: 燃信色彩与光源体系`
 - TO: `### Requirement: 倾诉色彩与光源体系`
 
@@ -16,7 +13,13 @@
 - FROM: `### Requirement: 燃信动效原则`
 - TO: `### Requirement: 倾诉动效原则`
 
-## MODIFIED Requirements
+## REMOVED Requirements
+
+### Requirement: 燃信极简画面构成
+**Reason**: 原需求允许火焰与余光出现在画面元素白名单内，燃烧移除后该清单失准。
+**Migration**: 使用「倾诉极简画面构成」：画面元素收敛为纸张与文字，收好后画面审计换为无残留新物体。
+
+## ADDED Requirements
 
 ### Requirement: 倾诉极简画面构成
 主画面静置时 SHALL 只包含 `assets/envelop/background.png` 背景、底部打开的信封、真实插在前袋后的下一张横向对折信纸与右上角菜单入口；顶部 MUST NOT 显示金额、张数、进度或其他数字。信纸进入流程后，画面只可出现纸张与文字；MUST NOT 生成火焰、余光、孔明灯、灯、星、鹤、船、灰烬堆或其他具象载体。
@@ -28,6 +31,8 @@
 #### Scenario: 收好后画面审计
 - **WHEN** 信纸确认收好并回到信封静置
 - **THEN** 画面中没有聚拢、成形或残留的新物体
+
+## MODIFIED Requirements
 
 ### Requirement: 倾诉色彩与光源体系
 主界面 SHALL 保持既有暖色、低饱和纸感基调与一致的柔和光源；背景、信封、信纸和手帐 MUST 在同一色彩与材质体系内。背景、信封和信纸 SHALL 固定使用 `assets/envelop/` 下的发行位图。明信片主体 MUST 直接来自真实位图，不得由 Canvas 图形、程序化纸片或纯色外观替代。进入手帐时 SHALL 以 0.6s 渐暗转场连接页面，转场不得永久改变主界面基调。

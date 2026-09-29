@@ -183,8 +183,8 @@ export function paintPaperWriting(
 ): void {
   const content = text || prompt;
   if (!content) return;
-  const writingLeft = rect.left + rect.width * 0.20;
-  const writingTop = rect.top + rect.height * 0.80;
+  const writingLeft = rect.left + rect.width * 0.16;
+  const writingTop = rect.top + rect.height * 0.14;
   const writingWidth = rect.width * 0.68;
   const writingHeight = rect.height * 0.72;
   const isPrompt = !text;

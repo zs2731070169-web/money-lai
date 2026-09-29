@@ -227,13 +227,20 @@ export function createWebPlatformAdapter(): PlatformAdapter {
         image.src = assetUrl;
       });
     },
-    async loadBundledAudio(assetUrl) {
-      try {
-        const response = await fetch(assetUrl);
-        return response.ok ? await response.arrayBuffer() : null;
-      } catch {
-        return null;
-      }
+    loadBundledAudio(assetUrl) {
+      // WKWebView 的 capacitor:// 自定义 scheme 对 Fetch API 一律返回 404；XHR 才是受支持的加载路径
+      return new Promise((resolve) => {
+        try {
+          const request = new XMLHttpRequest();
+          request.open('GET', assetUrl, true);
+          request.responseType = 'arraybuffer';
+          request.onload = () => { resolve(request.status === 200 ? (request.response as ArrayBuffer) : null); };
+          request.onerror = () => { resolve(null); };
+          request.send();
+        } catch {
+          resolve(null);
+        }
+      });
     },
   };
 }

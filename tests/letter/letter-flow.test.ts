@@ -97,6 +97,9 @@ describe('信封到收好的端到端链路', () => {
     expect(game.getTestSnapshot().page).toBe('journal');
     platform.touch('start', platform.safe.left + 30, platform.safe.top + 34);
     platform.touch('end', platform.safe.left + 30, platform.safe.top + 34);
+    expect(game.getTestSnapshot().page).toBe('menu');
+    platform.touch('start', menu.closeRect.left + 22, menu.closeRect.top + 22); platform.touch('end', menu.closeRect.left + 22, menu.closeRect.top + 22);
+    for (let index = 0; index < 3; index += 1) platform.tick(100);
     expect(game.getTestSnapshot().page).toBe('main');
 
     // 再次抽出：进入编辑时输入层以原文为初始内容
@@ -155,17 +158,27 @@ describe('信封到收好的端到端链路', () => {
     expect(game.getTestSnapshot().phase).toBe('edit-return');
   });
 
-  it('空白信纸上滑收好同样保存并达成空白成就', async () => {
+  it('空白信纸上滑收好完全无痕：不落帐、不结算、不计数、不显示统计', async () => {
     const { game, platform, layout } = await readyGame('');
     await confirmThroughSettle(platform, layout);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(game.getTestSnapshot().persisted.journalEntries[0].text).toBe('');
-    expect(game.getTestSnapshot().persisted.achievementIds).toContain('first-blank');
+    for (let index = 0; index < 15; index += 1) platform.tick(100);
+    expect(game.getTestSnapshot().phase).toBe('idle');
+    expect(game.getTestSnapshot().persisted.journalEntries).toHaveLength(0);
+    expect(game.getTestSnapshot().persisted.postcardMileage).toBe(0);
+    expect(game.getTestSnapshot().persisted.collectedPatternIds).toHaveLength(0);
+    expect(game.getTestSnapshot().persisted.achievementIds).toEqual([]);
+    expect(game.getTestSnapshot().persisted.statCadenceCount).toBe(0);
+    expect(platform.countCalls).toBe(0);
+    // 首启会写入初始空状态（game.ts start 路径），无痕的证明是落库内容仍无任何记录与里程
+    const stored = JSON.parse(platform.storage.get(LETTER_BURNING_STORAGE_KEY) ?? '{}');
+    expect(stored.journalEntries ?? []).toHaveLength(0);
+    expect(stored.postcardMileage ?? 0).toBe(0);
   });
 
   it('偶数节奏与离线计数均按完整时钟链路降级', async () => {
-    const beforeSecond = settleCompletedPostcard(createEmptyLetterLetterState(), { id: 'a', createdAtIso: '2026-09-27T00:00:00.000Z', patternId: 'postcard-01', text: '' });
-    const even = await readyGame('', beforeSecond); even.platform.countResult = 44;
+    const beforeSecond = settleCompletedPostcard(createEmptyLetterLetterState(), { id: 'a', createdAtIso: '2026-09-27T00:00:00.000Z', patternId: 'postcard-01', text: '第一句' });
+    const even = await readyGame('第二句', beforeSecond); even.platform.countResult = 44;
     await confirmThroughSettle(even.platform, even.layout);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(even.game.getTestSnapshot().phase).toBe('idle');

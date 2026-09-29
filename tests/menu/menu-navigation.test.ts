@@ -87,10 +87,11 @@ describe('燃信菜单与页面', () => {
     if (!fontRow) throw new Error('菜单缺少字体套餐入口');
     click(platform, fontRow.rect.left + 20, fontRow.rect.top + fontRow.rect.height / 2);
     expect(game.getTestSnapshot().page).toBe('font-packages');
-    // 返回直接回主界面：菜单不自动弹出，被挂起的编辑以原草稿续开（取消语义）
+    // 返回回到已展开的菜单；关闭菜单才回主界面并以原草稿续开编辑（取消语义）
     platform.textResult = null;
     click(platform, platform.safe.left + 30, platform.safe.top + 34);
-    expect(game.getTestSnapshot().page).toBe('main');
+    expect(game.getTestSnapshot().page).toBe('menu');
+    closeMenuAndWait(platform, menu);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(platform.textRequests[1].initialValue).toBe('保留的草稿\n第二行');
     expect(game.getTestSnapshot().phase).toBe('edit-return');
@@ -154,7 +155,7 @@ describe('燃信菜单与页面', () => {
     expect(game.getTestSnapshot().persisted.activeThemeId).toBe('topic1');
     expect(platform.storage.get(LETTER_BURNING_STORAGE_KEY)).toContain('topic1');
     click(platform, platform.safe.left + 30, platform.safe.top + 34);
-    expect(game.getTestSnapshot().page).toBe('main');
+    expect(game.getTestSnapshot().page).toBe('menu');
   });
 
   it('字体套餐页可切换并通过新状态键恢复', async () => {
@@ -169,7 +170,7 @@ describe('燃信菜单与页面', () => {
     expect(game.getTestSnapshot().persisted.activeFontPackageId).toBe('romantic-literary');
     expect(platform.storage.get(LETTER_BURNING_STORAGE_KEY)).toContain('romantic-literary');
     click(platform, platform.safe.left + 30, platform.safe.top + 34);
-    expect(game.getTestSnapshot().page).toBe('main');
+    expect(game.getTestSnapshot().page).toBe('menu');
   });
 
   it('菜单打开后隔离主界面，字体套餐位于第 4 项并可进入各功能页', async () => {
@@ -188,8 +189,8 @@ describe('燃信菜单与页面', () => {
     for (const page of ['mileage', 'themes', 'font-packages', 'achievements'] as const) {
       const row = menu.rows.find((item) => item.action === page); if (!row) continue;
       click(platform, row.rect.left + 20, row.rect.top + row.rect.height / 2); expect(game.getTestSnapshot().page).toBe(page);
-      click(platform, platform.safe.left + 30, platform.safe.top + 34); expect(game.getTestSnapshot().page).toBe('main');
-      click(platform, scene.menuRect.left + 24, scene.menuRect.top + 24); expect(game.getTestSnapshot().page).toBe('menu');
+      // 返回回到已展开的菜单：无需再点图标重开
+      click(platform, platform.safe.left + 30, platform.safe.top + 34); expect(game.getTestSnapshot().page).toBe('menu');
     }
   });
 
@@ -210,23 +211,25 @@ describe('燃信菜单与页面', () => {
     expect(platform.openedUrls).toEqual(['https://example.test/privacy']);
   });
 
-  it('进入手帐先经过 0.6s 渐暗转场', async () => {
+  it('菜单点手帐直接切页：不经主界面中转、无渐暗转场（不闪屏）', async () => {
     const { platform, game, menu } = await preparedGame(); const row = menu.rows.find((item) => item.action === 'journal');
     if (!row) throw new Error('菜单缺少手帐入口');
     click(platform, row.rect.left + 20, row.rect.top + row.rect.height / 2);
-    expect(game.getTestSnapshot().page).toBe('main');
-    for (let index = 0; index < 5; index += 1) platform.tick(100);
-    expect(game.getTestSnapshot().page).toBe('main'); platform.tick(100); expect(game.getTestSnapshot().page).toBe('journal');
+    await Promise.resolve();
+    expect(game.getTestSnapshot().page).toBe('journal'); // 与里程/主题等页面一致：点按即达
+    platform.tick(100);
+    expect(game.getTestSnapshot().page).toBe('journal'); // 稳定停留，无转场后置切换
   });
 
-  it('减弱动态效果下缩短非关键页面转场', async () => {
+  it('减弱动态效果下手帐切页行为一致', async () => {
     const platform = new FakePlatform(); platform.reducedMotion = true; platform.storage.set(PRIVACY_CONSENT_STORAGE_KEY, 'true');
     const game = new Game({ platformAdapter: platform }); await game.start(); platform.tick(0);
     const scene = computeLetterSceneLayout(platform.viewport.width, platform.viewport.height, platform.safe); click(platform, scene.menuRect.left + 24, scene.menuRect.top + 24);
     const menu = computeMenuLayout(platform.viewport.width, platform.viewport.height, platform.safe); const row = menu.rows.find((item) => item.action === 'journal');
     if (!row) throw new Error('菜单缺少手帐入口');
     click(platform, row.rect.left + 20, row.rect.top + row.rect.height / 2);
-    platform.tick(100); expect(game.getTestSnapshot().page).toBe('main'); platform.tick(100); expect(game.getTestSnapshot().page).toBe('journal');
+    await Promise.resolve();
+    expect(game.getTestSnapshot().page).toBe('journal');
   });
 
   it('菜单支持向右滑动关闭，小位移右移仍按行点按处理', async () => {

@@ -1,7 +1,7 @@
 import { AudioEngine } from './audio/engine';
 import { BACK_PROMPTS, COPY } from './content/copy';
 import { shouldDisplayBurnCount } from './count/burn-count';
-import { JOURNAL_HEADER_BAND_HEIGHT, computeJournalLayout, maximumJournalScroll } from './journal/journal-layout';
+import { computeJournalLayout, maximumJournalScroll } from './journal/journal-layout';
 import {
   LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, activateFontPackage, activateLetterTheme,
   clearJournal, createEmptyLetterLetterState, parseLetterLetterState,
@@ -19,16 +19,14 @@ import type { NormalizedTouchPoint, PlatformAdapter, PrimaryCanvas, TouchPhase }
 import { computeFontPackageItemRects, computePageItemRects, hitJournalCell, journalClearRect, pageBackRect, paintAppOverlay } from './render/app-overlay-painter';
 import { paintAdaptiveBackground, planAdaptiveBackground } from './render/background-composition';
 import { computeLetterSceneLayout, containsPoint } from './render/letter-layout';
-import { paintLetterScene, paintPageFade, type LetterSceneAssets } from './render/letter-painter';
+import { paintLetterScene, type LetterSceneAssets } from './render/letter-painter';
 import { computeMenuLayout, type AppPage, type MenuAction } from './render/menu-layout';
 
-const TRANSITION_DURATION_MS = 600;
-const REDUCED_TRANSITION_DURATION_MS = 200;
 /** 菜单面板滑入/滑出时长；减弱动态效果时缩短。 */
 const MENU_PANEL_SLIDE_MS = 240;
 const REDUCED_MENU_PANEL_SLIDE_MS = 80;
 const CLEAR_JOURNAL_DURATION_MS = 2700;
-/** 清空渐隐满幅落库后的奶油层淡出时长：与渐隐同色系收尾，避免硬切。 */
+/** 清空落库失败/悬挂兜底后的网格淡回时长：小图从全隐平滑回到可见，避免硬切。 */
 const CLEAR_JOURNAL_REVEAL_MS = 260;
 /** 渐隐满幅后等待落库结果的兜底上限：桥接回调悬挂时按未确认成功解困，不让奶油层与输入永久钉死。 */
 const CLEAR_JOURNAL_WRITE_TIMEOUT_MS = 1200;
@@ -102,7 +100,6 @@ export class Game {
   private menuPanelStartedAt: number | null = null;
   /** true 表示正在向右滑出关闭；动画结束后才切回主界面。 */
   private menuPanelClosing = false;
-  private transitionElapsedMs: number | null = null;
   private clearJournalElapsedMs: number | null = null;
   /** 渐隐满幅后落库尝试进度：0 未发起、1 首试、2 重试（悬挂兜底与防重复写库共用）。 */
   private clearJournalWriteAttempts = 0;
@@ -223,7 +220,7 @@ export class Game {
   }
 
   private handleTouch(phase: TouchPhase, point: NormalizedTouchPoint): void {
-    if (!this.ready || this.inputActive || this.transitionElapsedMs !== null || this.clearJournalElapsedMs !== null || this.clearJournalRevealAtMs !== null) return;
+    if (!this.ready || this.inputActive || this.clearJournalElapsedMs !== null || this.clearJournalRevealAtMs !== null) return;
     this.unlockAudioFromGesture();
     const now = this.platform.nowMilliseconds();
     if (this.page !== 'main') { this.handleOverlayTouch(phase, point, now); return; }
@@ -269,7 +266,9 @@ export class Game {
       if (distance < 10 && now - start.atMs < 450) {
         this.letter = beginEditing(this.letter); void this.editPostcardText(); return;
       }
-      const wantsStat = shouldDisplayBurnCount(this.persisted.statCadenceCount + 1);
+      // 空白信收好完全无痕：不显示统计句（save effect 处同口径跳过结算与计数）
+      const blankTuck = this.letter.text.length === 0;
+      const wantsStat = !blankTuck && shouldDisplayBurnCount(this.persisted.statCadenceCount + 1);
       const update = endTuck(this.letter, point.pointerId, point.positionY, now, viewport.height, wantsStat);
       this.letter = update.state; this.consumeEffects(update.effects);
     }
@@ -342,10 +341,9 @@ export class Game {
       }
       return;
     }
-    // 子页返回直接回主界面：菜单是临时启动器而非常驻父级，返回时不得自动弹出
+    // 子页返回回到「一直展开」的菜单：菜单是常驻容器，进出子页不关闭也不重播滑入动画
     if (containsPoint(pageBackRect(safe), point.positionX, point.positionY)) {
-      this.page = 'main'; this.menuPanelStartedAt = null; this.menuPanelClosing = false; this.selectedJournalEntry = null;
-      if (this.letter.phase === 'edit') void this.editPostcardText();
+      this.page = 'menu'; this.menuPanelStartedAt = null; this.menuPanelClosing = false; this.selectedJournalEntry = null;
       return;
     }
     if (this.page === 'journal') {
@@ -378,12 +376,13 @@ export class Game {
 
   private async performMenuAction(action: MenuAction): Promise<void> {
     if (action === 'privacy') { if (this.privacyPolicyUrl) await this.platform.openExternalUrl(this.privacyPolicyUrl); else this.showNotice(COPY.unavailable); return; }
-    if (action === 'journal') { this.page = 'main'; this.transitionElapsedMs = 0; return; }
     this.page = action;
   }
 
   private async requestClearJournal(): Promise<void> {
     if (this.persisted.journalEntries.length === 0) return;
+    // 同步确认弹窗会冻结 rAF：先把 BGM 排程窗口拉长，弹窗期间音乐不断
+    this.audio.prefetchBgm(30);
     if (!await this.platform.requestConfirmation(COPY.clearConfirm)) return;
     this.page = 'journal'; this.clearJournalElapsedMs = 0;
   }
@@ -393,7 +392,11 @@ export class Game {
   private consumeEffects(effects: readonly LetterEffect[]): void {
     for (const effect of effects) {
       if (effect === 'requestEdit') void this.editPostcardText();
-      else if (effect === 'save') { this.audio.settleLongNote(); void this.completePostcard(); }
+      else if (effect === 'save') {
+        this.audio.settleLongNote();
+        // 空白信完全无痕：只保留收好音反馈；不结算、不落库、不计数，复位 effect 照常换下一张
+        if (this.letter.text.length > 0) void this.completePostcard();
+      }
       else if (effect === 'reset') { this.cycleId += 1; this.savingCycle = false; this.chooseNextCard(); }
     }
   }
@@ -446,8 +449,6 @@ export class Game {
 
   private advanceFrame(timestamp: number): void {
     const delta = this.lastFrameTimestamp === null ? 0 : Math.max(0, timestamp - this.lastFrameTimestamp); this.lastFrameTimestamp = timestamp;
-    const transitionDurationMs = this.reducedMotion ? REDUCED_TRANSITION_DURATION_MS : TRANSITION_DURATION_MS;
-    if (this.transitionElapsedMs !== null) { this.transitionElapsedMs += Math.min(delta, 100); if (this.transitionElapsedMs >= transitionDurationMs) { this.transitionElapsedMs = null; this.page = 'journal'; } }
     // 菜单滑出动画到达终点后切回主界面（delta 钳制与转场一致，防后台跳帧跳过）
     if (this.menuPanelClosing && this.menuPanelStartedAt !== null) {
       const durationMs = this.reducedMotion ? REDUCED_MENU_PANEL_SLIDE_MS : MENU_PANEL_SLIDE_MS;
@@ -537,12 +538,11 @@ export class Game {
     // 输入面板激活期间书写内容由输入层独占：信纸不再画引导语与旧文字，避免透明面板下叠印
     const paperWritingHidden = this.inputActive;
     paintLetterScene(context, { width: viewport.width, height: viewport.height, layout, state: paperWritingHidden ? { ...this.letter, text: '' } : this.letter, fontPackageId: this.persisted.activeFontPackageId, menuGlowProgress: glowProgress, reducedMotion: this.reducedMotion, assets: this.letterSceneAssets });
-    if (this.page !== 'main') paintAppOverlay(context, { width: viewport.width, height: viewport.height, safeArea: safe, page: this.page, state: this.persisted, journalScroll: this.journalScroll, selectedEntryIndex: this.selectedJournalEntry, journalDetailScroll: this.journalDetailScroll, menuSlideRatio: this.menuPanelSlideRatio(), background: this.letterSceneAssets.background, backgroundComposed: this.letterSceneAssets.backgroundComposed, openEnvelope: this.letterSceneAssets.openEnvelope, letterPaper: this.letterSceneAssets.letterPaper });
-    if (this.transitionElapsedMs !== null) { const durationMs = this.reducedMotion ? REDUCED_TRANSITION_DURATION_MS : TRANSITION_DURATION_MS; const ratio = Math.min(1, this.transitionElapsedMs / durationMs); context.fillStyle = `rgba(78,61,49,${0.38 * Math.sin(ratio * Math.PI)})`; context.fillRect(0, 0, viewport.width, viewport.height); }
-    // 清空渐隐只覆盖页眉带之下的网格区：banner（标题/返回/右上入口）全程保持原样
-    const journalFadeTopOffset = safe.top + JOURNAL_HEADER_BAND_HEIGHT;
-    if (this.clearJournalElapsedMs !== null) paintPageFade(context, viewport.width, viewport.height, Math.min(1, this.clearJournalElapsedMs / CLEAR_JOURNAL_DURATION_MS), journalFadeTopOffset);
-    else if (this.clearJournalRevealAtMs !== null) paintPageFade(context, viewport.width, viewport.height, 1 - Math.min(1, (this.platform.nowMilliseconds() - this.clearJournalRevealAtMs) / CLEAR_JOURNAL_REVEAL_MS), journalFadeTopOffset);
+    // 清空动画 = 网格小图各自隐退：纸面/banner/页脚零变化；落库成功后网格自然为空，失败按此比例淡回
+    let journalGridFade = 0;
+    if (this.clearJournalElapsedMs !== null) journalGridFade = Math.min(1, this.clearJournalElapsedMs / CLEAR_JOURNAL_DURATION_MS);
+    else if (this.clearJournalRevealAtMs !== null) journalGridFade = 1 - Math.min(1, (this.platform.nowMilliseconds() - this.clearJournalRevealAtMs) / CLEAR_JOURNAL_REVEAL_MS);
+    if (this.page !== 'main') paintAppOverlay(context, { width: viewport.width, height: viewport.height, safeArea: safe, page: this.page, state: this.persisted, journalScroll: this.journalScroll, journalGridFade, selectedEntryIndex: this.selectedJournalEntry, journalDetailScroll: this.journalDetailScroll, menuSlideRatio: this.menuPanelSlideRatio(), background: this.letterSceneAssets.background, backgroundComposed: this.letterSceneAssets.backgroundComposed, openEnvelope: this.letterSceneAssets.openEnvelope, letterPaper: this.letterSceneAssets.letterPaper });
     if (this.notice && this.notice.until > this.platform.nowMilliseconds()) { context.save(); context.fillStyle = 'rgba(73,88,83,.82)'; context.font = "13px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center'; context.fillText(this.notice.text, viewport.width / 2, viewport.height - safe.bottom - 34); context.restore(); } else if (this.notice) this.notice = null;
   }
 

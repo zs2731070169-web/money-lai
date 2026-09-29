@@ -50,7 +50,6 @@ export const POSTCARD_NAMES = {
 export const ACHIEVEMENT_COPY = {
   'first-draw': { name: '第一封', description: '第一次从信封取出信纸' },
   'first-burn': { name: '第一次倾诉', description: '第一次确认收好心里的信' },
-  'first-blank': { name: '留白', description: '收好一张没写字的信纸' },
   'mileage-10': { name: '十张纸', description: '本机心里话里程达到十张' },
 } as const;
 

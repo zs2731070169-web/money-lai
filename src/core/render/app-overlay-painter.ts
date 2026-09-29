@@ -79,6 +79,7 @@ function paintJournal(
   safe: SafeAreaInsets,
   entries: readonly JournalEntry[],
   scroll: number,
+  gridFadeRatio: number,
   selectedEntryIndex: number | null,
   detailScroll: number,
   fontPackageId: FontPackageId,
@@ -87,20 +88,24 @@ function paintJournal(
   const layout = computeJournalLayout(width, height, safe, entries.length, scroll); title(context, COPY.journal, width, safe);
   // 网格裁剪在页眉带之下：滚动时缩略图从 banner 下缘滑出，不遮挡标题与左上返回按钮
   const gridClipTop = layout.headerRect.top + layout.headerRect.height;
+  // 清空动画：网格小图各自隐退（含缩影文字与日期），纸面/banner/页脚零变化；全隐时整段跳过
+  const gridAlpha = 1 - Math.min(1, Math.max(0, gridFadeRatio));
   context.save(); context.beginPath(); context.rect(0, gridClipTop, width, height - gridClipTop); context.clip();
-  for (const cell of layout.cells) {
-    const entry = entries[cell.entryIndex];
-    const artArea = { ...cell.rect, height: cell.rect.height - 23 };
-    context.save(); context.shadowColor = 'rgba(64,49,38,.14)'; context.shadowBlur = 8; context.shadowOffsetY = 3;
-    const paperRect = containLetter(artArea, 2);
-    paintLetterPaperAsset(context, paperRect, letterPaper); context.restore();
-    // 网格缩略：整页缩影——固定极小字号（随纸宽约 3%，钳制 2.5–5px），密密麻麻不可读，
-    // 超长内容被书写区裁剪，看起来像一整页手写信念缩小后的样子
-    if (entry.text) {
-      const miniatureFontSize = Math.max(2.5, Math.min(5, paperRect.width * 0.03));
-      paintPaperWriting(context, paperRect, entry.text, fontPackageId, { fixedFontSize: miniatureFontSize });
+  if (gridAlpha > 0) {
+    for (const cell of layout.cells) {
+      const entry = entries[cell.entryIndex];
+      const artArea = { ...cell.rect, height: cell.rect.height - 23 };
+      context.save(); context.globalAlpha = gridAlpha; context.shadowColor = 'rgba(64,49,38,.14)'; context.shadowBlur = 8; context.shadowOffsetY = 3;
+      const paperRect = containLetter(artArea, 2);
+      paintLetterPaperAsset(context, paperRect, letterPaper); context.restore();
+      // 网格缩略：整页缩影——固定极小字号（随纸宽约 3%，钳制 2.5–5px），密密麻麻不可读，
+      // 超长内容被书写区裁剪，看起来像一整页手写信念缩小后的样子
+      if (entry.text) {
+        const miniatureFontSize = Math.max(2.5, Math.min(5, paperRect.width * 0.03));
+        paintPaperWriting(context, paperRect, entry.text, fontPackageId, { fixedFontSize: miniatureFontSize, alphaMultiplier: gridAlpha });
+      }
+      context.fillStyle = INK; context.globalAlpha = 0.7 * gridAlpha; context.font = "11px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center'; context.fillText(formatJournalTimestamp(entry.createdAtIso), cell.rect.left + cell.rect.width / 2, cell.rect.top + cell.rect.height - 7); context.globalAlpha = 1;
     }
-    context.fillStyle = INK; context.globalAlpha = 0.7; context.font = "11px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center'; context.fillText(formatJournalTimestamp(entry.createdAtIso), cell.rect.left + cell.rect.width / 2, cell.rect.top + cell.rect.height - 7); context.globalAlpha = 1;
   }
   context.restore();
   // 页眉带右上：清空整本手帐入口（与左上返回同色同字号；空手帐置灰；命中盒见 journalClearRect）
@@ -182,6 +187,8 @@ export interface AppOverlayPaintOptions {
   state: LetterBurningPersistedState; journalScroll: number; selectedEntryIndex: number | null;
   /** 手帐详情阅读的滚动偏移（像素，向下为正）。 */
   journalDetailScroll?: number;
+  /** 清空动画的网格隐退比例（0-1）：1 时缩略图/缩影文字/日期全部隐没，背景与页面家具不动。 */
+  journalGridFade?: number;
   /** 菜单面板展开比例（0–1）：滑入/滑出动画用；缺省视为 1（全开）。 */
   menuSlideRatio?: number;
   background?: CanvasImageSource | null; backgroundComposed?: CanvasImageSource | null;
@@ -192,7 +199,7 @@ export function paintAppOverlay(context: CanvasRenderingContext2D, options: AppO
   const { width, height, safeArea, page, state } = options;
   if (page === 'menu') { paintMenu(context, computeMenuLayout(width, height, safeArea), options.menuSlideRatio ?? 1, width, height); return; }
   paintPaperBackground(context, width, height, options.background, options.backgroundComposed);
-  if (page === 'journal') { paintJournal(context, width, height, safeArea, state.journalEntries, options.journalScroll, options.selectedEntryIndex, options.journalDetailScroll ?? 0, state.activeFontPackageId, options.letterPaper); return; }
+  if (page === 'journal') { paintJournal(context, width, height, safeArea, state.journalEntries, options.journalScroll, options.journalGridFade ?? 0, options.selectedEntryIndex, options.journalDetailScroll ?? 0, state.activeFontPackageId, options.letterPaper); return; }
   if (page === 'themes') { paintThemes(context, width, safeArea, state.activeThemeId, state.postcardMileage, options.letterPaper); return; }
   if (page === 'font-packages') { paintFontPackages(context, width, safeArea, state.activeFontPackageId); return; }
   if (page === 'mileage') {

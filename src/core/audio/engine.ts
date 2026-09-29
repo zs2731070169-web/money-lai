@@ -65,7 +65,15 @@ export class AudioEngine {
     }
     return true;
   }
-  handleAudioInterruption(phase: 'begin' | 'end'): void { if (phase === 'begin') { this.unlocked = false; this.reunlockRequired = true; this.stopBgm(); this.resetEnvelopeDrawOutGesture(); } }
+  handleAudioInterruption(phase: 'begin' | 'end'): void {
+    if (phase === 'begin') { this.unlocked = false; this.reunlockRequired = true; this.stopBgm(); this.resetEnvelopeDrawOutGesture(); return; }
+    // end：短遮挡（系统确认弹窗把 WKWebView visibility 翻 hidden）结束——直接续播，
+    // 不再等用户手势；上下文若被系统挂起则先 resume 再起播（真中断场景由 resume 结果兜底）
+    if (!this.reunlockRequired) return;
+    this.reunlockRequired = false; this.unlocked = true;
+    if (this.context && this.context.state === 'suspended') { void resumeAudioContextIfNeeded(this.context).then(() => this.startBgm()); return; }
+    this.startBgm();
+  }
   handleAppVisibilityChange(visible: boolean): void { if (!visible) this.stopBgm(); else if (this.unlocked) this.startBgm(); }
   /** 注入随包「信纸抽出」素材字节；返回前不做任何解码，保持音频上下文惰性创建。 */
   setEnvelopeDrawOutSample(bytes: ArrayBuffer | null): void {
@@ -138,9 +146,14 @@ export class AudioEngine {
     if (!this.bgmDry || !this.bgmWet) { const chain = createBgmReverbChain(context, this.bgmBus); this.bgmDry = chain.dryInputNode; this.bgmWet = chain.wetSendInputNode; }
     this.planner = createGenerativePianoPlanner(AUDIO_SYNTHESIS_PARAMETERS.bgm.seed, AUDIO_SYNTHESIS_PARAMETERS.bgm); this.bgmOrigin = now; this.bgmPlaying = true; this.updateBgm();
   }
-  updateBgm(): void {
+  /** 每帧常规排程：维持 6 秒前瞻缓冲。 */
+  updateBgm(): void { this.prefetchBgm(6); }
+
+  /** 长阻塞前的 BGM 预排：同步系统弹窗会冻结 rAF 使常规窗口耗尽断音，提前拉长排程缓冲。 */
+  prefetchBgm(prefetchSeconds: number): void {
     if (!this.bgmPlaying || !this.planner || !this.context || !this.bgmDry || !this.bgmWet) return;
-    for (const event of this.planner.planNextEvents(this.context.currentTime + 6 - this.bgmOrigin)) scheduleGenerativePianoNote(this.context, this.bgmDry, this.bgmWet, { ...event, startAtSeconds: event.startAtSeconds + this.bgmOrigin });
+    const horizonSeconds = this.context.currentTime + prefetchSeconds - this.bgmOrigin;
+    for (const event of this.planner.planNextEvents(horizonSeconds)) scheduleGenerativePianoNote(this.context, this.bgmDry, this.bgmWet, { ...event, startAtSeconds: event.startAtSeconds + this.bgmOrigin });
   }
   stopBgm(): void {
     this.bgmPlaying = false; this.planner = null; if (!this.context || !this.bgmBus) return; const now = this.context.currentTime; this.bgmBus.gain.cancelScheduledValues(now); this.bgmBus.gain.setValueAtTime(this.bgmBus.gain.value, now); this.bgmBus.gain.linearRampToValueAtTime(0, now + AUDIO_SYNTHESIS_PARAMETERS.bgm.fadeOutSeconds);

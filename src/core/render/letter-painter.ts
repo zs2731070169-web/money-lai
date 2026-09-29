@@ -146,7 +146,7 @@ export function paintPaperWriting(
   rect: Rect,
   text: string,
   fontPackageId: FontPackageId = DEFAULT_FONT_PACKAGE_ID,
-  options: { fixedFontSize?: number; scrollOffset?: number } = {},
+  options: { fixedFontSize?: number; scrollOffset?: number; alphaMultiplier?: number } = {},
 ): void {
   // 空文字保持纸面留白：引导语只出现在放大编辑的输入层，不再印到缩小后的信纸上
   if (!text) return;
@@ -193,7 +193,8 @@ export function paintPaperWriting(
   context.globalCompositeOperation = 'multiply';
   context.textAlign = 'left';
   context.textBaseline = 'top';
-  context.globalAlpha = text ? 0.94 : 0.52;
+  // alphaMultiplier：外层淡入淡出（如手帐清空时网格小图隐退）与墨迹浓度相乘
+  context.globalAlpha = (text ? 0.94 : 0.52) * (options.alphaMultiplier ?? 1);
   context.font = `${fontSize}px ${fontStackForPackage(fontPackageId)}`;
   context.beginPath();
   context.rect(writingLeft, writingTop, writingWidth, writingHeight);
@@ -437,15 +438,4 @@ export function paintLetterScene(context: CanvasRenderingContext2D, options: Let
 }
 
 /** 清空手帐的克制纸面渐隐：整页随进度沉入暖纸底色，无火焰与粒子。 */
-export function paintPageFade(
-  context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  progress: number,
-  topOffset: number,
-): void {
-  const ratio = Math.max(0, Math.min(1, progress));
-  if (ratio <= 0 || height - topOffset <= 0) return;
-  // 只淡入 topOffset 之下（如手帐页眉带）：banner 与页面家具不参与渐隐
-  context.save(); context.fillStyle = `rgba(247,239,228,${ratio})`; context.fillRect(0, topOffset, width, height - topOffset); context.restore();
-}
+

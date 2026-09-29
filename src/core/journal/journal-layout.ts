@@ -9,8 +9,8 @@ export interface JournalLayout {
   contentHeight: number;
 }
 
-/** 手帐页眉带高度（安全区顶部起）：标题/返回/右上入口所在带；网格与清空渐隐都止于其下缘。 */
-export const JOURNAL_HEADER_BAND_HEIGHT = 72;
+/** 手帐页眉带高度（安全区顶部起）：标题/返回/右上入口所在带；网格绘制止于其下缘。 */
+const JOURNAL_HEADER_BAND_HEIGHT = 72;
 
 export function computeJournalLayout(
   width: number,

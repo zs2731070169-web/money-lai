@@ -102,7 +102,6 @@ export function settleCompletedPostcard(
   const mileage = state.postcardMileage + 1;
   const achievements = evaluateAchievementIds({
     mileage,
-    completedBlank: normalizedEntry.text.length === 0,
     drewCard: true,
   });
   return {

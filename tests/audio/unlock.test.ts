@@ -153,22 +153,24 @@ describe('AudioEngine 解锁与中断状态机', () => {
     expect(engine.isUnlocked()).toBe(false);
   });
 
-  it('音频中断 begin → 标记需重解锁；end 后下次 unlock 恢复', async () => {
-    const mockContext = createSuspendedAudioContextMock();
+  it('音频中断 begin → 停播并标记；end → 自动恢复续播（系统弹窗遮挡不再静默）', async () => {
+    // 真离线上下文：end 恢复要走 startBgm 管线，mock 缺节点会抛错
     const engine = new AudioEngine({
-      createAudioContext: () => mockContext as unknown as AudioContext,
+      createAudioContext: () => new OfflineAudioContext(1, 44100, 44100) as unknown as AudioContext,
     });
     await engine.unlock();
+    engine.startBgm();
     expect(engine.isReunlockRequired()).toBe(false);
+    expect(engine.isPlayingBgm()).toBe(true);
 
     engine.handleAudioInterruption('begin');
     expect(engine.isReunlockRequired()).toBe(true);
+    expect(engine.isPlayingBgm()).toBe(false); // 遮挡期间停播（跟随系统暂停）
 
     engine.handleAudioInterruption('end');
-    expect(engine.isReunlockRequired()).toBe(true); // 仍需一次手势确认
-
-    await engine.unlock(); // 下一次手势
-    expect(engine.isReunlockRequired()).toBe(false);
+    await Promise.resolve(); // 恢复可能经 resume 异步链
+    expect(engine.isReunlockRequired()).toBe(false); // 弹窗关闭即恢复，无需用户手势
     expect(engine.isUnlocked()).toBe(true);
+    expect(engine.isPlayingBgm()).toBe(true);
   });
 });

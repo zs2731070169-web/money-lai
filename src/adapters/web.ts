@@ -79,6 +79,33 @@ function button(label: string, primary = false): HTMLButtonElement {
   return element;
 }
 
+/**
+ * 页面内确认层：系统弹窗（window.confirm）会触发 iOS 对 WKWebView 的音频挂起，
+ * BGM 随之中断——自绘遮罩+纸色确认卡全程无系统介入，音频与 rAF 均不受扰。
+ * 遮罩空白处点按视为取消；卡片层拦截冒泡。
+ */
+function requestInPageConfirmation(message: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const shell = createOverlayShell(false);
+    const panel = createPaperPanel();
+    Object.assign(panel.style, { width: 'min(300px, 100%)', padding: '26px 24px 20px', textAlign: 'center' });
+    const messageText = document.createElement('div');
+    messageText.textContent = message;
+    Object.assign(messageText.style, { font: "16px/1.6 ui-rounded,'PingFang SC',sans-serif", marginBottom: '20px', whiteSpace: 'pre-wrap' });
+    const settle = (confirmed: boolean) => { shell.remove(); resolve(confirmed); };
+    const cancelButton = button(COPY.cancel); cancelButton.addEventListener('click', () => settle(false));
+    const confirmButton = button(COPY.confirm, true); confirmButton.addEventListener('click', () => settle(true));
+    const actions = document.createElement('div');
+    Object.assign(actions.style, { display: 'flex', justifyContent: 'center', gap: '14px' });
+    actions.append(cancelButton, confirmButton);
+    panel.append(messageText, actions);
+    panel.addEventListener('click', (event) => event.stopPropagation());
+    shell.addEventListener('click', (event) => { if (event.target === shell) settle(false); });
+    shell.append(panel);
+    document.body.append(shell);
+  });
+}
+
 /** 隐藏输入层滚动条但保留滚动：scrollbar-width 走行内，::-webkit-scrollbar 只能靠注入的一次性规则表达。 */
 let draftScrollbarRuleReady = false;
 function hideDraftScrollbar(element: HTMLElement): void {
@@ -249,7 +276,7 @@ export function createWebPlatformAdapter(): PlatformAdapter {
     writePersistentValue(key, value) { return storage.write(key, value); },
     requestMultilineText,
     requestPrivacyConsent,
-    requestConfirmation(message) { return Promise.resolve(window.confirm(message)); },
+    requestConfirmation(message) { return requestInPageConfirmation(message); },
     openExternalUrl,
     shareTemporaryPng(request) { return shareTemporaryPng(request.fileName, request.base64Data, request.title); },
     async encodePng(surface) {

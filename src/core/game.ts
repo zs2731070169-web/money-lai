@@ -104,9 +104,9 @@ export class Game {
   private menuPanelClosing = false;
   private transitionElapsedMs: number | null = null;
   private clearJournalElapsedMs: number | null = null;
-  /** 渐隐满幅后的落库是否已发起（保持期防重复写库）。 */
-  private clearJournalWriteStarted = false;
-  /** 渐隐满幅后落库发起的时刻：供悬挂兜底计时。 */
+  /** 渐隐满幅后落库尝试进度：0 未发起、1 首试、2 重试（悬挂兜底与防重复写库共用）。 */
+  private clearJournalWriteAttempts = 0;
+  /** 最近一次落库尝试发起的时刻：供悬挂兜底计时。 */
   private clearJournalWriteStartedAtMs = 0;
   /** 落库落定后奶油层淡出的起点；null 表示无收尾。 */
   private clearJournalRevealAtMs: number | null = null;
@@ -423,6 +423,15 @@ export class Game {
     }
   }
 
+  /** 发起清空落库：失败立即重试一次（原生弹窗刚关闭时桥接回调概率性丢失）。 */
+  private attemptClearJournalWrite(next: LetterBurningPersistedState, attemptIndex: number): void {
+    this.clearJournalWriteAttempts = attemptIndex; this.clearJournalWriteStartedAtMs = this.platform.nowMilliseconds();
+    void this.platform.writePersistentValue(LETTER_BURNING_STORAGE_KEY, serializeLetterLetterState(next)).then((saved) => {
+      if (!saved && attemptIndex < 2) { this.attemptClearJournalWrite(next, attemptIndex + 1); return; }
+      this.settleClearJournalWrite(saved, next);
+    });
+  }
+
   /** 落库结果落定（成功/失败/超时兜底）统一收尾：换血或提示，随后进入奶油层淡出。 */
   private settleClearJournalWrite(saved: boolean, next: LetterBurningPersistedState | null): void {
     if (this.clearJournalElapsedMs === null) {
@@ -432,7 +441,7 @@ export class Game {
     }
     if (saved && next) { this.persisted = next; this.journalScroll = 0; this.selectedJournalEntry = null; }
     else if (!saved) this.showNotice(COPY.saveFailed);
-    this.clearJournalElapsedMs = null; this.clearJournalWriteStarted = false; this.clearJournalRevealAtMs = this.platform.nowMilliseconds();
+    this.clearJournalElapsedMs = null; this.clearJournalWriteAttempts = 0; this.clearJournalRevealAtMs = this.platform.nowMilliseconds();
   }
 
   private advanceFrame(timestamp: number): void {
@@ -447,14 +456,12 @@ export class Game {
     if (this.clearJournalElapsedMs !== null) {
       // 渐隐满幅后钉在终点保持：奶油层不提前撤下，等落库落定再淡出，杜绝旧网格（含右上入口）整帧回闪
       this.clearJournalElapsedMs = Math.min(CLEAR_JOURNAL_DURATION_MS, this.clearJournalElapsedMs + Math.min(delta, 100));
-      if (this.clearJournalElapsedMs >= CLEAR_JOURNAL_DURATION_MS && !this.clearJournalWriteStarted) {
-        this.clearJournalWriteStarted = true; this.clearJournalWriteStartedAtMs = this.platform.nowMilliseconds();
-        const next = clearJournal(this.persisted);
-        void this.platform.writePersistentValue(LETTER_BURNING_STORAGE_KEY, serializeLetterLetterState(next)).then((saved) => this.settleClearJournalWrite(saved, next));
-      }
-      // 落库回调悬挂兜底：越上限按未确认成功解困，晚到的成功仍会补换血
-      if (this.clearJournalWriteStarted && this.platform.nowMilliseconds() - this.clearJournalWriteStartedAtMs >= CLEAR_JOURNAL_WRITE_TIMEOUT_MS) {
-        this.settleClearJournalWrite(false, null);
+      if (this.clearJournalElapsedMs >= CLEAR_JOURNAL_DURATION_MS && this.clearJournalWriteAttempts === 0) {
+        this.attemptClearJournalWrite(clearJournal(this.persisted), 1);
+      } else if (this.clearJournalWriteAttempts > 0 && this.platform.nowMilliseconds() - this.clearJournalWriteStartedAtMs >= CLEAR_JOURNAL_WRITE_TIMEOUT_MS) {
+        // 悬挂兜底：首试悬挂重发一次；重试仍悬挂按未确认成功解困（晚到的成功仍会补换血）
+        if (this.clearJournalWriteAttempts < 2) this.attemptClearJournalWrite(clearJournal(this.persisted), 2);
+        else this.settleClearJournalWrite(false, null);
       }
     }
     if (this.clearJournalRevealAtMs !== null && this.platform.nowMilliseconds() - this.clearJournalRevealAtMs >= CLEAR_JOURNAL_REVEAL_MS) this.clearJournalRevealAtMs = null;

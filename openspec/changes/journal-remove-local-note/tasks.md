@@ -10,4 +10,4 @@
 
 - [x] 3.1 跑 `npm run verify`：失败集与本变更前基线完全一致（燃信在途 10 例红为既有状态）、手帐相关测试全绿、import 审计与构建通过（实际执行时在途燃信 10 例已被并行提交修复，现行基线仅剩 `clear-write-guards` 2 例用户红测试；import 审计、tsc 构建、发行审计因 `&&` 链在测试步中止而显式补跑，全部通过）
 - [x] 3.2 跑 `npm run verify:specs` 与 `openspec validate journal-remove-local-note --strict --no-interactive` 通过（主规格 8/8、变更 strict 校验通过）
-- [ ] 3.3 `npm run launch` 模拟器验收：手帐页页脚无任何常驻文案，返回按钮、标题、右上「清空整本手帐」与网格滚动不受影响；随后实现后审查（改动面无死代码、未接线引用、命名与注释缺口）并复跑 `npx vitest run tests/journal`
+- [x] 3.3 `npm run launch` 模拟器验收：手帐页页脚无任何常驻文案，返回按钮、标题、右上「清空整本手帐」与网格滚动不受影响（CGEvent 驱动：菜单→手帐，截图确认页脚纯背景）；随后实现后审查（src 无 localOnly/noteY/页脚说明残留，无死代码与未接线引用）并复跑 `npx vitest run tests/journal`（19 绿，仅剩 `clear-write-guards` 2 例为并行在途的清空韧性红测试，非本变更引入）

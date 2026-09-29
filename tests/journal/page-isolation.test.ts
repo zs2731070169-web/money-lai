@@ -8,7 +8,7 @@ describe('手帐页面数据隔离', () => {
     const context = new Proxy({}, { get(_target, property) { if (property === 'fillText') return (text: string) => texts.push(text); if (property === 'createLinearGradient' || property === 'createRadialGradient') return () => gradient; if (property === 'measureText') return () => ({ width: 20 }); return () => undefined; }, set: () => true }) as unknown as CanvasRenderingContext2D;
     const state = settleCompletedPostcard(createEmptyLetterLetterState(), { id: 'a', createdAtIso: '2026-09-28T00:00:00.000Z', patternId: 'postcard-01', text: '隐藏原文' });
     paintAppOverlay(context, { width: 402, height: 874, safeArea: { top: 62, bottom: 34, left: 0, right: 0 }, page: 'journal', state, journalScroll: 0, selectedEntryIndex: null });
-    expect(texts).not.toContain('这些东西只在这台设备上。'); expect(texts).toContain('2026-09-28'); expect(texts).toContain('隐藏原文'); expect(texts).not.toContain(String(state.postcardMileage));
+    expect(texts).not.toContain('这些东西只在这台设备上。'); expect(texts.some((text) => /^2026-09-28 \d{2}:\d{2}:\d{2}$/.test(text))).toBe(true); expect(texts).toContain('隐藏原文'); expect(texts).not.toContain(String(state.postcardMileage));
   });
 
   it('一级菜单只绘制七个功能行，不再绘制医疗声明、12355 与清空入口', () => {

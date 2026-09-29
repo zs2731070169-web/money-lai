@@ -33,6 +33,14 @@ function title(context: CanvasRenderingContext2D, label: string, width: number, 
   context.textAlign = 'left'; context.font = "20px ui-rounded,'PingFang SC',sans-serif"; context.fillText(COPY.backLabel, safe.left + 19, safe.top + 38);
 }
 
+/** 手帐时间标签：ISO 存储为 UTC，展示前转本地时区并精确到时分秒（同日多封可区分）。 */
+export function formatJournalTimestamp(iso: string): string {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return iso.slice(0, 10);
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())} ${pad(parsed.getHours())}:${pad(parsed.getMinutes())}:${pad(parsed.getSeconds())}`;
+}
+
 function paintMenu(context: CanvasRenderingContext2D, layout: MenuLayout, slideRatio: number, viewportWidth: number, viewportHeight: number): void {
   const ratio = Math.max(0, Math.min(1, slideRatio));
   context.save();
@@ -92,7 +100,7 @@ function paintJournal(
       const miniatureFontSize = Math.max(2.5, Math.min(5, paperRect.width * 0.03));
       paintPaperWriting(context, paperRect, entry.text, fontPackageId, { fixedFontSize: miniatureFontSize });
     }
-    context.fillStyle = INK; context.globalAlpha = 0.7; context.font = "11px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center'; context.fillText(entry.createdAtIso.slice(0, 10), cell.rect.left + cell.rect.width / 2, cell.rect.top + cell.rect.height - 7); context.globalAlpha = 1;
+    context.fillStyle = INK; context.globalAlpha = 0.7; context.font = "11px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center'; context.fillText(formatJournalTimestamp(entry.createdAtIso), cell.rect.left + cell.rect.width / 2, cell.rect.top + cell.rect.height - 7); context.globalAlpha = 1;
   }
   context.restore();
   // 页眉带右上：清空整本手帐入口（与左上返回同色同字号；空手帐置灰；命中盒见 journalClearRect）
@@ -108,7 +116,7 @@ function paintJournal(
     paintLetterPaperAsset(context, paperRect, letterPaper);
     context.restore();
     context.fillStyle = INK; context.globalAlpha = 0.6; context.textAlign = 'center'; context.font = "12px ui-rounded,'PingFang SC',sans-serif";
-    context.fillText(entry.createdAtIso.slice(0, 10), width / 2, paperRect.top - 18);
+    context.fillText(formatJournalTimestamp(entry.createdAtIso), width / 2, paperRect.top - 18);
     context.globalAlpha = 1; context.textAlign = 'left';
     if (entry.text) paintPaperWriting(context, paperRect, entry.text, fontPackageId, { fixedFontSize: 16, scrollOffset: detailScroll });
   }

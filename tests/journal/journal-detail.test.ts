@@ -56,7 +56,7 @@ describe('手帐详情放大信纸阅览', () => {
     expect(bodyLines.map((line) => line.text).join('')).toBe(bodyText.replace('\n', ''));
 
     // 日期小字仍在纸面上方，纸面位图确实绘制
-    expect(recording.fillTexts.some((item) => item.text === '2026-09-28' && !item.font.includes('Letter'))).toBe(true);
+    expect(recording.fillTexts.some((item) => item.text.startsWith('2026-09-28 ') && /\d{2}:\d{2}:\d{2}$/.test(item.text) && !item.font.includes('Letter'))).toBe(true);
     expect(recording.imageDraws.some((args) => args[0] === letterPaper)).toBe(true);
   });
 
@@ -108,7 +108,7 @@ describe('手帐详情放大信纸阅览', () => {
       ...VIEWPORT, page: 'journal', state, journalScroll: 0, selectedEntryIndex: 0, letterPaper,
     });
     expect(recording.fillTexts.some((item) => item.font.includes('Letter') && item.font.includes('16px'))).toBe(false);
-    expect(recording.fillTexts.some((item) => item.text === '2026-09-28')).toBe(true);
+    expect(recording.fillTexts.some((item) => /^2026-09-28 \d{2}:\d{2}:\d{2}$/.test(item.text))).toBe(true);
     expect(recording.imageDraws.some((args) => args[0] === letterPaper)).toBe(true);
   });
 });

@@ -14,15 +14,6 @@ function filteredNoise(
   return { source, gain };
 }
 
-export function startPostcardRustle(
-  context: BaseAudioContext, destination: AudioNode, noiseBuffer: AudioBuffer, at: number,
-  parameters: { highpassHertz: number; lowpassHertz: number; gain: number },
-): ActiveNoiseVoice {
-  const voice = filteredNoise(context, destination, noiseBuffer, parameters.highpassHertz, parameters.lowpassHertz);
-  voice.gain.gain.setValueAtTime(0.0001, at); voice.gain.gain.linearRampToValueAtTime(parameters.gain, at + 0.05); voice.source.start(at);
-  return { gainNode: voice.gain, sourceNode: voice.source, stopAtSeconds: Number.POSITIVE_INFINITY };
-}
-
 export function stopNoiseVoice(voice: ActiveNoiseVoice, at: number, fadeSeconds: number): void {
   voice.gainNode.gain.cancelScheduledValues(at); voice.gainNode.gain.setValueAtTime(Math.max(0.0001, voice.gainNode.gain.value), at); voice.gainNode.gain.linearRampToValueAtTime(0.0001, at + fadeSeconds); voice.sourceNode.stop(at + fadeSeconds + 0.02); voice.stopAtSeconds = at + fadeSeconds + 0.02;
 }
@@ -58,4 +49,3 @@ export function scheduleExtinguish(
   const gain = context.createGain(); gain.gain.setValueAtTime(parameters.startGain, at); gain.gain.exponentialRampToValueAtTime(0.0001, at + parameters.durationSeconds);
   source.connect(filter); filter.connect(gain); gain.connect(destination); source.start(at); source.stop(at + parameters.durationSeconds + 0.02);
 }
-

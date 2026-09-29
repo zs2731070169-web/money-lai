@@ -14,13 +14,14 @@ async function readyGame(textResult: string | null = '原文', initialState?: Le
 async function burnCurrentCard(platform: FakePlatform, layout: ReturnType<typeof computeLetterSceneLayout>): Promise<void> {
   drawAndFlip(platform, layout);
   const cx = layout.cardRect.left + layout.cardRect.width / 2; const cy = layout.cardRect.top + layout.cardRect.height / 2;
-  platform.touch('start', cx, cy); platform.touch('end', cx, cy); await Promise.resolve();
+  await Promise.resolve();
+  for (let index = 0; index < 4; index += 1) platform.tick(100);
   platform.touch('start', cx, cy); platform.now += 200; platform.touch('move', cx, cy - 180); platform.touch('end', cx, cy - 180);
   for (let index = 0; index < 30; index += 1) platform.tick(100);
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-/** 抽取释放后推进时钟穿过 450ms 自动展开，进入可翻面的正面相位 */
+/** 抽取释放后推进时钟穿过 450ms 自动展开并进入全屏编辑相位 */
 function advancePastUnfold(platform: FakePlatform): void {
   for (let index = 0; index < 5; index += 1) platform.tick(100);
 }
@@ -29,8 +30,6 @@ function drawAndFlip(platform: FakePlatform, layout: ReturnType<typeof computeLe
   const x = layout.envelopeRect.left + layout.envelopeRect.width / 2; const y = layout.envelopeRect.top + 20;
   platform.touch('start', x, y); platform.now += 100; platform.touch('move', x, y - 100); platform.touch('end', x, y - 100);
   advancePastUnfold(platform);
-  const cx = layout.cardRect.left + layout.cardRect.width / 2; const cy = layout.cardRect.top + layout.cardRect.height / 2;
-  platform.touch('start', cx, cy); platform.touch('end', cx, cy);
 }
 
 describe('信封到燃烧的端到端链路', () => {
@@ -40,19 +39,21 @@ describe('信封到燃烧的端到端链路', () => {
     platform.touch('start', x, y); platform.now += 80; platform.touch('end', x, y - 100);
     expect(game.getTestSnapshot().phase).toBe('unfold');
     advancePastUnfold(platform);
-    expect(game.getTestSnapshot().phase).toBe('front');
+    expect(game.getTestSnapshot().phase).toBe('edit');
   });
 
   it('抽取、翻面、输入、甩出、保存、匿名计数、统计、复位', async () => {
     const { game, platform, layout } = await readyGame('一句话\n第二行'); drawAndFlip(platform, layout);
     const cx = layout.cardRect.left + layout.cardRect.width / 2; const cy = layout.cardRect.top + layout.cardRect.height / 2;
-    platform.touch('start', cx, cy); platform.touch('end', cx, cy); await Promise.resolve();
+    await Promise.resolve();
+    expect(game.getTestSnapshot().phase).toBe('edit-return');
+    for (let index = 0; index < 4; index += 1) platform.tick(100);
     expect(game.getTestSnapshot().phase).toBe('back');
     platform.touch('start', cx, cy); platform.now += 200; platform.touch('move', cx, cy - 180); platform.touch('end', cx, cy - 180);
     expect(game.getTestSnapshot().phase).toBe('burn');
     for (let index = 0; index < 30; index += 1) platform.tick(100);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(game.getTestSnapshot().persisted.journalEntries[0].text).toBe('一句话 第二行');
+    expect(game.getTestSnapshot().persisted.journalEntries[0].text).toBe('一句话\n第二行');
     expect(game.getTestSnapshot().persisted.postcardMileage).toBe(1);
     expect(platform.countCalls).toBe(1);
     for (let index = 0; index < 8 + 18; index += 1) platform.tick(100);
@@ -65,7 +66,8 @@ describe('信封到燃烧的端到端链路', () => {
   it('取消输入与未达阈值回弹都保留已有文字', async () => {
     const { game, platform, layout } = await readyGame(null); drawAndFlip(platform, layout);
     const cx = layout.cardRect.left + layout.cardRect.width / 2; const cy = layout.cardRect.top + layout.cardRect.height / 2;
-    platform.touch('start', cx, cy); platform.touch('end', cx, cy); await Promise.resolve();
+    await Promise.resolve();
+    for (let index = 0; index < 4; index += 1) platform.tick(100);
     platform.touch('start', cx, cy); platform.now += 300; platform.touch('move', cx, cy - 20); platform.touch('end', cx, cy - 20);
     expect(game.getTestSnapshot().phase).toBe('rebound');
     platform.tick(100); platform.tick(100); platform.tick(100);

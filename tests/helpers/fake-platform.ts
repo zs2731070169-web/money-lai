@@ -41,6 +41,7 @@ export class FakePlatform implements PlatformAdapter {
   readonly context = fakeContext(this.primaryCanvasShell);
   /** 背景合成接线测试用：注入的随包位图与离屏画布分配行为。 */
   bundledImage: CanvasImageSource | null = null;
+  bundledAudioBytes: ArrayBuffer | null = null;
   offscreenCanvasCalls = 0;
   offscreenCanvasSucceeds = true;
   createPrimaryCanvas(): PrimaryCanvas { return { renderingContext: this.context, logicalWidth: this.viewport.width, logicalHeight: this.viewport.height }; }
@@ -52,7 +53,7 @@ export class FakePlatform implements PlatformAdapter {
   onAudioInterruption(): void {}
   async readPersistentValue(key: string): Promise<string | null> { this.reads.push(key); return this.storageReadsSucceed ? this.storage.get(key) ?? null : null; }
   async writePersistentValue(key: string, value: string): Promise<boolean> { this.writes.push({ key, value }); if (this.storageWritesSucceed) this.storage.set(key, value); return this.storageWritesSucceed; }
-  async requestSingleLineText(_request: TextInputRequest): Promise<string | null> { return this.textResult; }
+  async requestMultilineText(_request: TextInputRequest): Promise<string | null> { return this.textResult; }
   async requestPrivacyConsent(): Promise<boolean> { this.consentRequests += 1; return this.consent; }
   async requestConfirmation(): Promise<boolean> { return this.confirmation; }
   async openExternalUrl(url: string): Promise<boolean> { this.openedUrls.push(url); return true; }
@@ -71,4 +72,6 @@ export class FakePlatform implements PlatformAdapter {
     return { renderingContext: fakeContext(), sourceSurface: {} as CanvasImageSource, pixelWidth, pixelHeight };
   }
   async loadBundledImage(): Promise<CanvasImageSource | null> { return this.bundledImage; }
+  /** 默认无随包音频素材：抽信手势在引擎侧静默降级。 */
+  async loadBundledAudio(): Promise<ArrayBuffer | null> { return this.bundledAudioBytes; }
 }

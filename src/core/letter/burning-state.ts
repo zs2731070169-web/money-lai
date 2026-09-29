@@ -6,15 +6,20 @@ export const STAT_HOLD_MS = 1800;
 export const STAT_DURATION_MS = STAT_FADE_MS * 2 + STAT_HOLD_MS;
 export const REBOUND_DURATION_MS = 300;
 export const REDUCED_REBOUND_DURATION_MS = 120;
+export const EDIT_RETURN_DURATION_MS = 320;
+export const REDUCED_EDIT_RETURN_DURATION_MS = 140;
+export const EDIT_ENTER_DURATION_MS = 320;
+export const REDUCED_EDIT_ENTER_DURATION_MS = 140;
 export const UNFOLD_DURATION_MS = 450;
 export const REDUCED_UNFOLD_DURATION_MS = 150;
 export const IGNITION_PREP_MS = 300;
 export const THROW_DISTANCE_RATIO = 0.15;
 export const THROW_SPEED_PX_PER_SECOND = 700;
 export const MAX_FRAME_DELTA_MS = 100;
+export const MAX_LETTER_TEXT_LENGTH = 200;
 
-export type BurningPhase = 'idle' | 'draw' | 'unfold' | 'front' | 'back' | 'drag' | 'rebound' | 'burn' | 'fade' | 'silence' | 'stat';
-export type BurningEffect = 'drawn' | 'prepareIgnition' | 'ignite' | 'save' | 'afterglow' | 'extinguish' | 'reset';
+export type BurningPhase = 'idle' | 'draw' | 'unfold' | 'front' | 'edit' | 'edit-return' | 'back' | 'drag' | 'rebound' | 'burn' | 'fade' | 'silence' | 'stat';
+export type BurningEffect = 'drawn' | 'requestEdit' | 'ignite' | 'save' | 'afterglow' | 'extinguish' | 'reset';
 
 export interface BurningState {
   phase: BurningPhase;
@@ -68,8 +73,23 @@ export function flipToBack(state: BurningState): BurningState {
   return state.phase === 'front' ? { ...state, phase: 'back', elapsedMs: 0 } : state;
 }
 
+export function beginEditing(state: BurningState): BurningState {
+  if (state.phase !== 'front' && state.phase !== 'back' && state.phase !== 'drag') return state;
+  return { ...state, phase: 'edit', elapsedMs: 0, pointerId: null, offsetY: 0, tiltDegrees: 0 };
+}
+
+export function normalizePostcardText(text: string): string {
+  return Array.from(text.replace(/\r\n?/g, '\n')).slice(0, MAX_LETTER_TEXT_LENGTH).join('');
+}
+
 export function setPostcardText(state: BurningState, text: string): BurningState {
-  return state.phase === 'back' ? { ...state, text: text.replace(/[\r\n]+/g, ' ') } : state;
+  return state.phase === 'edit' || state.phase === 'edit-return' || state.phase === 'back'
+    ? { ...state, text: normalizePostcardText(text) }
+    : state;
+}
+
+export function finishEditing(state: BurningState): BurningState {
+  return state.phase === 'edit' ? { ...state, phase: 'edit-return', elapsedMs: 0, pointerId: null, offsetY: 0, tiltDegrees: 0 } : state;
 }
 
 export function beginThrow(state: BurningState, pointerId: number, y: number, atMs: number): BurningState {
@@ -92,7 +112,7 @@ export function endThrow(
   if (distance >= viewportHeight * THROW_DISTANCE_RATIO || speed >= THROW_SPEED_PX_PER_SECOND) {
     return {
       state: { ...state, phase: 'burn', elapsedMs: -IGNITION_PREP_MS, pointerId: null, offsetY: 0, tiltDegrees: 0, wantsStat },
-      effects: ['prepareIgnition'],
+      effects: [],
     };
   }
   return { state: { ...state, phase: 'rebound', elapsedMs: 0, pointerId: null, reboundStartOffsetY: state.offsetY }, effects: [] };
@@ -104,7 +124,7 @@ export function resolveCount(state: BurningState, count: number | null): Burning
 
 export function advanceBurningState(state: BurningState, deltaMs: number, reducedMotion = false): BurningUpdate {
   if (!Number.isFinite(deltaMs) || deltaMs <= 0) return { state, effects: [] };
-  if (!['unfold', 'rebound', 'burn', 'fade', 'silence', 'stat'].includes(state.phase)) return { state, effects: [] };
+  if (!['unfold', 'edit', 'edit-return', 'rebound', 'burn', 'fade', 'silence', 'stat'].includes(state.phase)) return { state, effects: [] };
   let current = state;
   let remainingMs = Math.min(deltaMs, MAX_FRAME_DELTA_MS);
   const effects: BurningEffect[] = [];
@@ -115,7 +135,17 @@ export function advanceBurningState(state: BurningState, deltaMs: number, reduce
       const elapsedMs = current.elapsedMs + consumedMs;
       remainingMs -= consumedMs;
       if (elapsedMs < durationMs) { current = { ...current, elapsedMs }; break; }
-      current = { ...current, phase: 'front', elapsedMs: 0, offsetY: 0 };
+      current = { ...current, phase: 'edit', elapsedMs: 0, offsetY: 0 };
+      effects.push('requestEdit');
+      continue;
+    }
+    if (current.phase === 'edit') {
+      const durationMs = reducedMotion ? REDUCED_EDIT_ENTER_DURATION_MS : EDIT_ENTER_DURATION_MS;
+      const consumedMs = Math.min(remainingMs, durationMs - current.elapsedMs);
+      const elapsedMs = current.elapsedMs + consumedMs;
+      remainingMs -= consumedMs;
+      current = { ...current, elapsedMs };
+      if (remainingMs === 0 || elapsedMs < durationMs) break;
       continue;
     }
     if (current.phase === 'rebound') {
@@ -130,6 +160,15 @@ export function advanceBurningState(state: BurningState, deltaMs: number, reduce
         break;
       }
       current = { ...current, phase: 'back', elapsedMs: 0, offsetY: 0, reboundStartOffsetY: 0, tiltDegrees: 0 };
+      continue;
+    }
+    if (current.phase === 'edit-return') {
+      const durationMs = reducedMotion ? REDUCED_EDIT_RETURN_DURATION_MS : EDIT_RETURN_DURATION_MS;
+      const consumedMs = Math.min(remainingMs, durationMs - current.elapsedMs);
+      const elapsedMs = current.elapsedMs + consumedMs;
+      remainingMs -= consumedMs;
+      if (elapsedMs < durationMs) { current = { ...current, elapsedMs }; break; }
+      current = { ...current, phase: 'back', elapsedMs: 0, offsetY: 0, tiltDegrees: 0 };
       continue;
     }
     if (current.phase === 'burn') {

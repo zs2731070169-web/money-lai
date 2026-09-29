@@ -39,7 +39,13 @@ function paintMenu(context: CanvasRenderingContext2D, layout: MenuLayout): void 
   context.fillStyle = INK; context.textAlign = 'center'; context.textBaseline = 'middle'; context.font = "22px ui-rounded,'PingFang SC',sans-serif"; context.fillText('×', layout.closeRect.left + layout.closeRect.width / 2, layout.closeRect.top + layout.closeRect.height / 2);
   context.textAlign = 'left'; context.font = "16px ui-rounded,'PingFang SC',sans-serif";
   for (const row of layout.rows) { context.fillText(row.label, row.rect.left + 4, row.rect.top + row.rect.height / 2); context.strokeStyle = 'rgba(73,88,83,.14)'; context.beginPath(); context.moveTo(row.rect.left, row.rect.top + row.rect.height); context.lineTo(row.rect.left + row.rect.width, row.rect.top + row.rect.height); context.stroke(); }
-  context.globalAlpha = 0.7; context.font = "13px ui-rounded,'PingFang SC',sans-serif"; context.fillText(COPY.medicalDisclaimer, layout.panelRect.left + 22, layout.disclaimerY); context.restore();
+  context.restore();
+}
+
+/** 手帐页底部的「烧掉整本手帐」入口（固定页脚，不随网格滚动）。 */
+export function journalClearRect(width: number, height: number, safe: SafeAreaInsets): Rect {
+  const entryWidth = 220; const entryHeight = 36;
+  return { left: (width - entryWidth) / 2, top: height - safe.bottom - 62, width: entryWidth, height: entryHeight };
 }
 
 function containLetter(rect: Rect, padding: number): Rect {
@@ -72,6 +78,10 @@ function paintJournal(
     context.fillStyle = INK; context.globalAlpha = 0.7; context.font = "11px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center'; context.fillText(entry.createdAtIso.slice(0, 10), cell.rect.left + cell.rect.width / 2, cell.rect.top + cell.rect.height - 7); context.globalAlpha = 1;
   }
   context.fillStyle = INK; context.globalAlpha = 0.56; context.textAlign = 'center'; context.font = "12px ui-rounded,'PingFang SC',sans-serif"; context.fillText(COPY.localOnly, width / 2, layout.noteY); context.globalAlpha = 1;
+  // 页脚入口：烧掉整本手帐（安静置于本机说明上方，与页面基调一致）
+  const clearEntry = journalClearRect(width, height, safe);
+  context.fillStyle = INK; context.globalAlpha = entries.length > 0 ? 0.62 : 0.3; context.font = "13px ui-rounded,'PingFang SC',sans-serif";
+  context.fillText(COPY.clearJournal, clearEntry.left + clearEntry.width / 2, clearEntry.top + clearEntry.height / 2); context.globalAlpha = 1;
   if (selectedEntryIndex !== null && entries[selectedEntryIndex]) {
     const entry = entries[selectedEntryIndex]; const detail = { left: 28, top: safe.top + 92, width: width - 56, height: Math.min(440, height - safe.top - safe.bottom - 128) };
     context.fillStyle = 'rgba(65,49,39,.28)'; context.fillRect(0, safe.top + 72, width, height);
@@ -195,7 +205,6 @@ export function paintAppOverlay(context: CanvasRenderingContext2D, options: AppO
     title(context, COPY.achievements, width, safeArea); const rects = computePageItemRects(width, safeArea, LETTER_ACHIEVEMENTS.length);
     LETTER_ACHIEVEMENTS.forEach((achievement, index) => { const done = state.achievementIds.includes(achievement.id); const rect = rects[index]; context.fillStyle = done ? '#8B7563' : '#B8B0A6'; context.globalAlpha = done ? 1 : 0.55; context.beginPath(); context.arc(rect.left + 18, rect.top + 22, 8, 0, Math.PI * 2); context.fill(); context.fillStyle = INK; context.font = "15px ui-rounded,'PingFang SC',sans-serif"; context.fillText(achievement.name, rect.left + 42, rect.top + 17); context.font = "12px ui-rounded,'PingFang SC',sans-serif"; context.fillText(achievement.description, rect.left + 42, rect.top + 37); context.globalAlpha = 1; }); return;
   }
-  title(context, COPY.about, width, safeArea); context.fillStyle = INK; context.textAlign = 'center'; context.font = "20px ui-rounded,'PingFang SC',sans-serif"; context.fillText(COPY.aboutSignature, width / 2, height * 0.43); context.font = "14px ui-rounded,'PingFang SC',sans-serif"; context.globalAlpha = 0.65; context.fillText(COPY.medicalDisclaimer, width / 2, height * 0.5); context.globalAlpha = 1;
 }
 
 export function hitJournalCell(width: number, height: number, safe: SafeAreaInsets, entryCount: number, scroll: number, x: number, y: number): number | null {

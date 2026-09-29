@@ -3,7 +3,7 @@ import {
   AFTERGLOW_DURATION_MS, BURN_DURATION_MS, MAX_FRAME_DELTA_MS, SILENCE_DURATION_MS,
   REDUCED_REBOUND_DURATION_MS, REDUCED_UNFOLD_DURATION_MS, STAT_DURATION_MS, UNFOLD_DURATION_MS,
   advanceBurningState, beginDraw, beginThrow, createBurningState,
-  endDraw, endThrow, flipToBack, movePointer, resolveCount, setPostcardText,
+  beginEditing, endDraw, endThrow, finishEditing, movePointer, resolveCount, setPostcardText,
   type BurningState,
 } from '../../src/core/letter/burning-state';
 
@@ -24,16 +24,17 @@ describe('燃信纯状态机', () => {
     state = movePointer(state, 1, 600, 100);
     state = endDraw(state, 1).state;
     expect(state.phase).toBe('unfold');
-    state = advanceUntil(state, 'front').state;
+    state = advanceUntil(state, 'edit').state;
     expect(UNFOLD_DURATION_MS).toBe(450);
-    state = flipToBack(state);
     state = setPostcardText(state, '一句话\n仍是一行');
-    expect(state.text).toBe('一句话 仍是一行');
+    expect(state.text).toBe('一句话\n仍是一行');
+    state = [100, 100, 100, 100].reduce((current) => advanceBurningState(current, 100).state, finishEditing(state));
+    expect(state.phase).toBe('back');
     state = beginThrow(state, 1, 650, 200);
     state = movePointer(state, 1, 500, 350);
     const released = endThrow(state, 1, 500, 350, 800, true);
     expect(released.state.phase).toBe('burn');
-    expect(released.effects).toEqual(['prepareIgnition']);
+    expect(released.effects).toEqual([]);
     const fade = advanceUntil(released.state, 'fade');
     expect(fade.effects).toEqual(expect.arrayContaining(['save', 'afterglow', 'extinguish']));
     expect(BURN_DURATION_MS).toBe(2700);
@@ -48,11 +49,15 @@ describe('燃信纯状态机', () => {
 
   it('展开相位保留抽取位移作为动画起点，跨相位推进不丢剩余毫秒', () => {
     // 抽出 100px 后释放：进入展开相位时保留 offsetY 供画师插值，展开结束后清零
-    const released = endDraw(movePointer(beginDraw(createBurningState(), 1, 700, 0), 1, 600, 100), 1).state;
+    const release = endDraw(movePointer(beginDraw(createBurningState(), 1, 700, 0), 1, 600, 100), 1);
+    const released = release.state;
+    // 抽出成功只在瞬间发出一次 'drawn'（摩擦声触发点），未达阈值回弹则无效果
+    expect(release.effects).toEqual(['drawn']);
+    expect(endDraw(movePointer(beginDraw(createBurningState(), 1, 700, 0), 1, 690, 100), 1).effects).toEqual([]);
     expect(released.phase).toBe('unfold');
     expect(released.offsetY).toBe(-85);
     const partial = advanceBurningState({ ...released, elapsedMs: UNFOLD_DURATION_MS - 50 }, 80).state;
-    expect(partial.phase).toBe('front');
+    expect(partial.phase).toBe('edit');
     expect(partial.offsetY).toBe(0);
   });
 
@@ -61,12 +66,12 @@ describe('燃信纯状态机', () => {
     let state = advanceBurningState(released, 100, true).state;
     expect(state.phase).toBe('unfold');
     state = advanceBurningState(state, REDUCED_UNFOLD_DURATION_MS - 100, true).state;
-    expect(state.phase).toBe('front');
+    expect(state.phase).toBe('edit');
   });
 
   it('位移达到屏高 15% 或速度超过 700px/s 时燃烧', () => {
-    const front = advanceUntil(endDraw(movePointer(beginDraw(createBurningState(), 1, 700, 0), 1, 600, 100), 1).state, 'front').state;
-    const back = flipToBack(front);
+    const editing = advanceUntil(endDraw(movePointer(beginDraw(createBurningState(), 1, 700, 0), 1, 600, 100), 1).state, 'edit').state;
+    const back = [100, 100, 100, 100].reduce((current) => advanceBurningState(current, 100).state, finishEditing(editing));
     const byDistance = endThrow(beginThrow(back, 2, 600, 0), 2, 480, 500, 800, false);
     expect(byDistance.state.phase).toBe('burn');
     const bySpeed = endThrow(beginThrow(back, 3, 600, 0), 3, 520, 100, 800, false);
@@ -112,5 +117,19 @@ describe('燃信纯状态机', () => {
     expect(state.phase).toBe('rebound');
     state = advanceBurningState(state, REDUCED_REBOUND_DURATION_MS - 100, true).state;
     expect(state.phase).toBe('back');
+  });
+
+  it('编辑态保留换行并把特殊符号计入 200 字上限，退出后回缩到背面', () => {
+    const front = { ...createBurningState(), phase: 'front' as const };
+    const editing = beginEditing(front);
+    const source = `${'字'.repeat(100)}\n${'字'.repeat(99)}😀末尾`;
+    const written = setPostcardText(editing, source);
+    expect(written.phase).toBe('edit');
+    expect(Array.from(written.text)).toHaveLength(200);
+    expect(written.text.includes('\n')).toBe(true);
+    const returning = finishEditing(written);
+    expect(returning.phase).toBe('edit-return');
+    // 单帧增量被 MAX_FRAME_DELTA_MS=100 钳制，回缩到背面需分帧推进
+    expect(advanceUntil(returning, 'back').state.phase).toBe('back');
   });
 });

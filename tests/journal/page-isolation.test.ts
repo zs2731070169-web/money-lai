@@ -11,10 +11,17 @@ describe('手帐页面数据隔离', () => {
     expect(texts).toContain('这些东西只在这台设备上。'); expect(texts).toContain('2026-09-28'); expect(texts).not.toContain('隐藏原文'); expect(texts).not.toContain(String(state.postcardMileage));
   });
 
-  it('一级菜单直接绘制医疗声明与 12355', () => {
+  it('一级菜单只绘制七个功能行，不再绘制医疗声明、12355 与烧掉入口', () => {
     const texts: string[] = []; const gradient = { addColorStop() {} };
     const context = new Proxy({}, { get(_target, property) { if (property === 'fillText') return (text: string) => texts.push(text); if (property === 'createLinearGradient' || property === 'createRadialGradient') return () => gradient; if (property === 'measureText') return () => ({ width: 20 }); return () => undefined; }, set: () => true }) as unknown as CanvasRenderingContext2D;
     paintAppOverlay(context, { width: 402, height: 874, safeArea: { top: 62, bottom: 34, left: 0, right: 0 }, page: 'menu', state: createEmptyLetterBurningState(), journalScroll: 0, galleryScroll: 0, selectedEntryIndex: null });
-    expect(texts).toContain('本产品不提供医疗服务'); expect(texts).toContain('12355');
+    expect(texts).toEqual(['×', '明信片里程', '明信片图鉴', '信封与纸纹', '字体套餐', '成就', '手帐', '隐私政策']);
+  });
+
+  it('手帐页页脚绘制烧掉整本手帐入口', () => {
+    const texts: string[] = []; const gradient = { addColorStop() {} };
+    const context = new Proxy({}, { get(_target, property) { if (property === 'fillText') return (text: string) => texts.push(text); if (property === 'createLinearGradient' || property === 'createRadialGradient') return () => gradient; if (property === 'measureText') return () => ({ width: 20 }); return () => undefined; }, set: () => true }) as unknown as CanvasRenderingContext2D;
+    paintAppOverlay(context, { width: 402, height: 874, safeArea: { top: 62, bottom: 34, left: 0, right: 0 }, page: 'journal', state: createEmptyLetterBurningState(), journalScroll: 0, galleryScroll: 0, selectedEntryIndex: null });
+    expect(texts).toContain('烧掉整本手帐'); expect(texts).toContain('这些东西只在这台设备上。');
   });
 });

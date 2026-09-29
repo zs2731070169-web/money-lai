@@ -16,7 +16,7 @@ npm run launch
 - `src/core/journal/`：版本化本机状态、虚拟网格和隐私安全的长图画师。
 - `src/core/meta/postcard-progress.ts`：明信片里程、双槽外观与成就。
 - `src/core/render/`：布局、固定采样火线、信封/明信片、页面画师。
-- `src/core/audio/`：程序化纸声、火声与低音域钢琴。
+- `src/core/audio/`：随包抽出声素材、程序化火声与低音域钢琴。
 - `src/core/platform.ts`：唯一平台契约；`src/adapters/` 是 Web/Capacitor 实现。
 - `worker/`：最近 24 小时匿名聚合计数。
 

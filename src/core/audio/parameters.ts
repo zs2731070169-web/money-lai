@@ -5,9 +5,7 @@ export const AUDIO_SYNTHESIS_PARAMETERS = {
     globalLowpassHertz: 7000,
   },
   sfxBus: { busGain: 0.6 },
-  postcardRustle: {
-    highpassHertz: 320, lowpassHertz: 2800, gain: 0.07, fadeOutSeconds: 0.3,
-  },
+  /** 每次抽信手势的一段短暂莎莎声；总片段保留 1 秒，但只在前段发声一次。 */
   ignition: { durationSeconds: 0.08, peakGain: 0.5, centerHertz: 620 },
   burn: {
     highpassHertz: 200, lowpassHertz: 800, startGain: 0.22, endGain: 0.10,

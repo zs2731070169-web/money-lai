@@ -17,6 +17,7 @@ const game = new Game({
     openEnvelopeFront: new URL('../assets/envelop/topic1/open_envelope_front.png', import.meta.url).href,
     letterPaper: new URL('../assets/envelop/topic1/letter_paper.png', import.meta.url).href,
   },
+  envelopeDrawOutAudioUrl: new URL('../assets/audio/envelop_draw_out.wav', import.meta.url).href,
 });
 void (async () => {
   await loadLetterHandwritingFont();

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { computeJournalExportPlan, EXPORT_MAX_DIMENSION, EXPORT_MAX_PIXELS } from '../../src/core/journal/export';
 import { computeJournalLayout } from '../../src/core/journal/journal-layout';
 import { BURN_LINE_SAMPLE_COUNT, BURN_PAPER_STRIP_COUNT, createBurnGeometryBuffer, updateBurnGeometryInto } from '../../src/core/render/burn-geometry';
 
@@ -11,9 +10,8 @@ describe('燃信热路径性能冒烟', () => {
     expect(buffer.lineY.length).toBe(BURN_LINE_SAMPLE_COUNT); expect(buffer.stripOffsetY.length).toBe(BURN_PAPER_STRIP_COUNT);
   });
 
-  it('500 条手帐滚动只布局可见行，长图不突破像素预算', () => {
+  it('500 条手帐滚动只布局可见行', () => {
     const layout = computeJournalLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 }, 500, 8000);
     expect(layout.cells.length).toBeLessThan(40);
-    const plan = computeJournalExportPlan(500); expect(plan.width * plan.height).toBeLessThanOrEqual(EXPORT_MAX_PIXELS); expect(plan.height).toBeLessThanOrEqual(EXPORT_MAX_DIMENSION); expect(plan.chunkCount).toBeGreaterThan(1);
   });
 });

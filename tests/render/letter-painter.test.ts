@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createBurningState } from '../../src/core/letter/burning-state';
 import { createBurnGeometryBuffer } from '../../src/core/render/burn-geometry';
 import { computeLetterSceneLayout } from '../../src/core/render/letter-layout';
-import { INNER_FLAME_COLOR, OUTER_FLAME_COLOR, paintLetterScene } from '../../src/core/render/letter-painter';
+import { INNER_FLAME_COLOR, OUTER_FLAME_COLOR, computeExpandedPaperRect, paintLetterScene } from '../../src/core/render/letter-painter';
 
 function recordingContext() {
   const strokes: string[] = [];
@@ -27,6 +27,7 @@ function recordingContext() {
       if (property === 'fillText') return (value: string, x: number, y: number, maxWidth?: number) => fillTexts.push({ text: value, x, y, maxWidth, font, alpha: globalAlpha });
       if (property === 'beginPath') return () => { currentPath = []; };
       if (property === 'moveTo' || property === 'lineTo') return (x: number, y: number) => currentPath.push([x, y]);
+      if (property === 'rect') return (x: number, y: number, width: number, height: number) => currentPath.push([x, y], [x + width, y], [x + width, y + height], [x, y + height]);
       if (property === 'clip') return () => clippedPaths.push([...currentPath]);
       if (property === 'measureText') return (text: string) => ({ width: text.length * 10 });
       if (property === 'createLinearGradient' || property === 'createRadialGradient') return () => gradients;
@@ -94,6 +95,26 @@ describe('燃信画师', () => {
     expect(mask[1]).toEqual([layout.burnCardRect.left + layout.burnCardRect.width, bottom]);
     expect(mask[2][0]).toBeCloseTo(layout.burnCardRect.left + layout.burnCardRect.width);
     expect(mask.at(-1)?.[0]).toBeCloseTo(layout.burnCardRect.left);
+  });
+
+  it('下压放回到最大倾角时，折纸绘制被裁剪在信封底线以内', () => {
+    const recording = recordingContext();
+    const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
+    // “放回”手势：offsetY 钳回 0，单帧大位移让倾角直接到 8°，纸角原本会绕折线荡出信封底线
+    paintLetterScene(recording.context, {
+      width: 402, height: 874, layout, state: { ...createBurningState(), phase: 'draw', tiltDegrees: 8 },
+      prompt: '想说的是……',
+      ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+    });
+    const envelopeBottom = layout.envelopeRect.top + layout.envelopeRect.height;
+    // 护栏裁剪：全宽矩形，底边落在信封底线内侧 1px（且不低于底线 2px），纸角被挡在信封内
+    const guardClip = recording.clippedPaths.find((path) => {
+      const ys = path.map(([, y]) => y);
+      const xs = path.map(([x]) => x);
+      const maxY = Math.max(...ys);
+      return Math.min(...ys) === 0 && Math.min(...xs) <= 0 && maxY <= envelopeBottom - 1 && maxY >= envelopeBottom - 2;
+    });
+    expect(guardClip).toBeDefined();
   });
 
   it('本地位图按背景、信封后层、信纸、信封前袋的顺序绘制', () => {
@@ -201,14 +222,20 @@ describe('燃信画师', () => {
     expect(back.fillTexts.length).toBeGreaterThan(1);
     expect(back.fillTexts.map((item) => item.text).join('')).toBe(writtenText);
     expect(burning.fillTexts.map((item) => item.text).join('')).toBe(writtenText);
-    expect(english.fillTexts.map((item) => item.text)).toEqual(['handwritten', 'test wraps', 'naturally']);
+    expect(english.fillTexts.map((item) => item.text)).toEqual(['handwritten test', 'wraps naturally']);
     expect(back.compositeModes).toContain('multiply');
     for (const line of back.fillTexts) {
       expect(line.font).toContain('Letter LXGW WenKai');
+      expect(Number.parseFloat(line.font)).toBeLessThanOrEqual(13);
+      expect(line.alpha).toBe(0.94);
       expect(line.x).toBeGreaterThan(layout.cardRect.left);
       expect(line.y).toBeGreaterThan(layout.cardRect.top);
       expect(line.y).toBeLessThan(layout.cardRect.top + layout.cardRect.height);
     }
+    const prompt = paintPhase('back');
+    expect(prompt.fillTexts).toHaveLength(1);
+    expect(Number.parseFloat(prompt.fillTexts[0].font)).toBeGreaterThan(Number.parseFloat(back.fillTexts[0].font));
+    expect(prompt.fillTexts[0].alpha).toBe(0.52);
   });
 
   it('书写态使用所选字体套餐的中英文族名栈', () => {
@@ -223,6 +250,31 @@ describe('燃信画师', () => {
     });
     expect(recording.fillTexts.some((line) => line.font.includes('Letter Cormorant Garamond'))).toBe(true);
     expect(recording.compositeModes).toContain('multiply');
+  });
+
+  it('全屏编辑态只放大同一张原信纸，回缩态从大纸面过渡回卡片', () => {
+    const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
+    const asset = (id: string) => ({ id }) as unknown as CanvasImageSource;
+    const expanded = computeExpandedPaperRect(layout);
+    expect(expanded.width).toBeGreaterThan(layout.cardRect.width);
+    expect(expanded.left).toBeGreaterThanOrEqual(layout.safeContentRect.left);
+    const paint = (phase: 'edit' | 'edit-return', elapsedMs = 0) => {
+      const recording = imageRecordingContext();
+      paintLetterScene(recording.context, {
+        width: 402, height: 874, layout,
+        state: { ...createBurningState(), phase, elapsedMs, text: '第一行\n第二行' },
+        prompt: '想说的是……', ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+        assets: { background: asset('background'), openEnvelopeBack: asset('back'), openEnvelopeFront: asset('front'), letterPaper: asset('paper') },
+      });
+      return recording.draws;
+    };
+    const editingDraws = paint('edit', 320);
+    expect(editingDraws.map((draw) => draw.id)).toEqual(['background', 'paper']);
+    expect(editingDraws[1].args.slice(4)).toEqual([expanded.left, expanded.top, expanded.width, expanded.height]);
+    const returningDraws = paint('edit-return', 160);
+    expect(returningDraws.map((draw) => draw.id)).toEqual(['background', 'back', 'paper', 'front']);
+    expect(returningDraws[2].args[6]).toBeGreaterThan(layout.cardRect.width);
+    expect(returningDraws[2].args[6]).toBeLessThan(expanded.width);
   });
 
   it('已合成背景整幅拉伸绘制且优先于原图 cover 裁切', () => {

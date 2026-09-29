@@ -7,13 +7,15 @@
 
 ## 已完成检查
 
+- 2026-09-29 接入全屏多行编辑态后，在 iPhone 17 模拟器完成抽取→自动进入编辑→原始信纸等比放大检查：编辑纸面占据安全区主要高度，信封层不再遮挡，确认/取消控件无画布输入框底色；DOM 输入层使用当前字体套餐并允许换行，限制 200 个 Unicode 字符。键盘/输入法收起后的回缩动画与真机触摸回放仍需继续验收。
+
 - 2026-09-29 接入本地铃兰棉纸位图后，重新检查三种尺寸：`iphone-se-material-idle.png`、`iphone-17-material-back.png`、`iphone-17-pro-max-material-idle.png`。背景保持不透明全屏纸纹；SE 与 Pro Max 的打开信封、露出纸边和菜单均未裁切；iPhone 17 完成一次上滑抽取，信纸保持在后片与前袋之间后再完整离开。
 - 位图元数据自动检查确认 `closed_envelope.png`、`open_envelope.png`、`letter_paper.png` 为 1024×1024 RGBA，`background.png` 为 1536×1024 RGB；记录型 Canvas 测试确认运行时顺序为背景、信封后层、信纸、信封前袋。
 - 三种屏幕尺寸均检查了竖屏静置构图、安全区、菜单入口、信封和露出的明信片边缘；对应 `iphone-se-idle.png`、`iphone-17-idle.png` 和 `iphone-17-pro-max-front.png`。
 - Pro Max 完成抽取、正反翻面、单行输入、确认收键盘、快速上甩、2.7 秒燃烧、余光、静默和下一轮复位录屏；见 `iphone-17-pro-max-flow.mp4` 与 `iphone-17-pro-max-gesture-input-rebound.mp4`。
 - `iphone-17-pro-max-burn.png` 从流程录屏的燃烧中段无损抽帧。未烧纸面保持单一连续多边形，火线没有原先的 X 形自交，也没有全屏火焰或具象灰烬。
 - 输入确认后键盘和输入法候选均收起，正文 `abc` 留在明信片背面；反向甩动回到定格位，快速上甩可触发燃烧。
-- 菜单、医疗声明、手帐入口和主界面到手帐的渐暗前后状态已检查；见 `iphone-17-pro-max-menu.png`、`iphone-17-pro-max-journal.png`。
+- 菜单（现七项构成）、手帐入口和主界面到手帐的渐暗前后状态已检查；见 `iphone-17-pro-max-menu.png`、`iphone-17-pro-max-journal.png`。
 
 ## 仍未完成
 

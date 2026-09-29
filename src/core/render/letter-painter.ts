@@ -1,6 +1,6 @@
 import { COPY } from '../content/copy';
 import type { BurningState } from '../letter/burning-state';
-import { REDUCED_UNFOLD_DURATION_MS, UNFOLD_DURATION_MS, afterglowVisual, burnProgress, statAlpha } from '../letter/burning-state';
+import { EDIT_ENTER_DURATION_MS, EDIT_RETURN_DURATION_MS, REDUCED_EDIT_ENTER_DURATION_MS, REDUCED_EDIT_RETURN_DURATION_MS, REDUCED_UNFOLD_DURATION_MS, UNFOLD_DURATION_MS, afterglowVisual, burnProgress, statAlpha } from '../letter/burning-state';
 import { ENVELOPE_ASSET_ANCHORS, type LetterSceneLayout, type Rect } from './letter-layout';
 import type { BurnGeometryBuffer } from './burn-geometry';
 import { updateBurnGeometryInto } from './burn-geometry';
@@ -9,7 +9,7 @@ import { DEFAULT_FONT_PACKAGE_ID, fontStackForPackage, type FontPackageId } from
 
 export const OUTER_FLAME_COLOR = '#D85A30';
 export const INNER_FLAME_COLOR = '#BA7517';
-const INK = '#495853';
+const INK = '#354940';
 export interface LetterSceneAssets {
   background?: CanvasImageSource | null;
   /** 竖屏下按视口离屏合成的背景（视口比例、整幅拉伸绘制），优先于 background。 */
@@ -131,8 +131,8 @@ function wrapTextLines(
 ): string[] {
   const lines: string[] = [];
   let currentLine = '';
-  const pushCurrentLine = (): void => {
-    if (!currentLine) return;
+  const pushCurrentLine = (force = false): void => {
+    if (!currentLine && !force) return;
     lines.push(currentLine.trimEnd());
     currentLine = '';
   };
@@ -145,6 +145,10 @@ function wrapTextLines(
   };
   const paragraphs = text.split(/\r?\n/);
   paragraphs.forEach((paragraph, paragraphIndex) => {
+    if (!paragraph) {
+      pushCurrentLine(true);
+      return;
+    }
     const tokens = paragraph.match(/[\u3400-\u9FFF\uF900-\uFAFF]|[^\s\u3400-\u9FFF\uF900-\uFAFF]+|\s+/g) ?? Array.from(paragraph);
     for (const token of tokens) {
     if (/^\s+$/.test(token)) {
@@ -159,9 +163,10 @@ function wrapTextLines(
     if (context.measureText(token).width <= maximumWidth) currentLine = token;
     else appendByCharacter(token);
     }
-    if (paragraphIndex < paragraphs.length - 1) pushCurrentLine();
+    if (paragraphIndex < paragraphs.length - 1) pushCurrentLine(true);
   });
   pushCurrentLine();
+  if (lines.length === 0) lines.push('');
   return lines;
 }
 
@@ -178,20 +183,26 @@ export function paintPaperWriting(
 ): void {
   const content = text || prompt;
   if (!content) return;
-  const writingLeft = rect.left + rect.width * 0.22;
-  const writingTop = rect.top + rect.height * 0.16;
-  const writingWidth = rect.width * 0.56;
-  const writingHeight = rect.height * 0.62;
-  const preferredFontSize = Math.max(10, Math.min(19, rect.width * 0.072));
-  const minimumFontSize = Math.max(9, Math.min(12, rect.width * 0.04));
+  const writingLeft = rect.left + rect.width * 0.20;
+  const writingTop = rect.top + rect.height * 0.80;
+  const writingWidth = rect.width * 0.68;
+  const writingHeight = rect.height * 0.72;
+  const isPrompt = !text;
+  const preferredFontSize = isPrompt
+    ? Math.max(11, Math.min(17, rect.width * 0.064))
+    : Math.max(8, Math.min(13, rect.width * 0.048));
+  const minimumFontSize = isPrompt
+    ? Math.max(9, Math.min(13, rect.width * 0.045))
+    : Math.max(6, Math.min(9, rect.width * 0.027));
+  const lineHeightScale = isPrompt ? 1.42 : 1.48;
   let fontSize = preferredFontSize;
-  let lineHeight = fontSize * 1.55;
+  let lineHeight = fontSize * lineHeightScale;
   let lines: string[] = [];
 
   for (let candidateSize = preferredFontSize; candidateSize >= minimumFontSize; candidateSize -= 1) {
     context.font = `${candidateSize}px ${fontStackForPackage(fontPackageId)}`;
     const candidateLines = wrapTextLines(context, content, writingWidth);
-    const candidateLineHeight = candidateSize * 1.55;
+    const candidateLineHeight = candidateSize * lineHeightScale;
     fontSize = candidateSize;
     lineHeight = candidateLineHeight;
     lines = candidateLines;
@@ -202,7 +213,7 @@ export function paintPaperWriting(
   context.globalCompositeOperation = 'multiply';
   context.textAlign = 'left';
   context.textBaseline = 'top';
-  context.globalAlpha = text ? 0.78 : 0.26;
+  context.globalAlpha = text ? 0.94 : 0.52;
   context.font = `${fontSize}px ${fontStackForPackage(fontPackageId)}`;
   for (let index = 0; index < lines.length; index += 1) {
     context.fillText(lines[index], writingLeft, writingTop + index * lineHeight, writingWidth);
@@ -331,6 +342,12 @@ function paintFoldedLetter(context: CanvasRenderingContext2D, options: LetterSce
   const crease = top + halfHeight;
   const tiltDegrees = state.tiltDegrees * (1 - extractionEased);
   context.save();
+  // 信纸不可能穿出信封底边以下：“放回/下压”的快速位移会让倾角一帧内到 8°，
+  // 绕折线回转的纸角会荡出信封底线约 19px 穿帮到桌面。裁剪到底线内侧 1px，
+  // 裁切痕迹仍被不透明前袋覆盖；投影同样不再漏出底边。
+  context.beginPath();
+  context.rect(-1, 0, options.width + 2, layout.envelopeRect.top + layout.envelopeRect.height - 1);
+  context.clip();
   context.translate(foldedRect.left + foldedRect.width / 2, crease); context.rotate(tiltDegrees * Math.PI / 180); context.translate(-(foldedRect.left + foldedRect.width / 2), -crease);
   context.shadowColor = 'rgba(76,53,38,.18)'; context.shadowBlur = 18; context.shadowOffsetY = 7;
   paintFoldedTop(context, foldedRect, options.paperAppearanceId, options.assets?.letterPaper, 1 - unfoldEased);
@@ -342,13 +359,56 @@ function paintFoldedLetter(context: CanvasRenderingContext2D, options: LetterSce
   context.restore();
 }
 
+const LETTER_PAPER_ASPECT_RATIO = LETTER_PAPER_SOURCE_WIDTH / LETTER_PAPER_SOURCE_HEIGHT;
+
+/** 在安全区内以原纸比例计算编辑态的大信纸，不改变素材本身的裁切方式。 */
+export function computeExpandedPaperRect(layout: LetterSceneLayout): Rect {
+  const maximumWidth = layout.safeContentRect.width;
+  const maximumHeight = layout.safeContentRect.height;
+  let width = maximumWidth;
+  let height = width / LETTER_PAPER_ASPECT_RATIO;
+  if (height > maximumHeight) {
+    height = maximumHeight;
+    width = height * LETTER_PAPER_ASPECT_RATIO;
+  }
+  return {
+    left: layout.safeContentRect.left + (layout.safeContentRect.width - width) / 2,
+    top: layout.safeContentRect.top + (layout.safeContentRect.height - height) / 2,
+    width,
+    height,
+  };
+}
+
+function interpolateRect(from: Rect, to: Rect, progress: number): Rect {
+  const ratio = Math.max(0, Math.min(1, progress));
+  return {
+    left: from.left + (to.left - from.left) * ratio,
+    top: from.top + (to.top - from.top) * ratio,
+    width: from.width + (to.width - from.width) * ratio,
+    height: from.height + (to.height - from.height) * ratio,
+  };
+}
+
 function paintActivePostcard(context: CanvasRenderingContext2D, options: LetterScenePaintOptions): void {
   const { state, layout } = options;
   if (state.phase === 'draw' || state.phase === 'unfold') {
     paintFoldedLetter(context, options);
     return;
   }
-  const rect = state.phase === 'burn' ? layout.burnCardRect : { ...layout.cardRect, top: layout.cardRect.top + state.offsetY };
+  let rect: Rect;
+  if (state.phase === 'edit') {
+    const durationMs = options.reducedMotion ? REDUCED_EDIT_ENTER_DURATION_MS : EDIT_ENTER_DURATION_MS;
+    const progress = Math.min(1, state.elapsedMs / durationMs);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    rect = interpolateRect(layout.cardRect, computeExpandedPaperRect(layout), eased);
+  } else if (state.phase === 'edit-return') {
+    const durationMs = options.reducedMotion ? REDUCED_EDIT_RETURN_DURATION_MS : EDIT_RETURN_DURATION_MS;
+    const progress = 1 - Math.min(1, state.elapsedMs / durationMs);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    rect = interpolateRect(layout.cardRect, computeExpandedPaperRect(layout), eased);
+  } else {
+    rect = state.phase === 'burn' ? layout.burnCardRect : { ...layout.cardRect, top: layout.cardRect.top + state.offsetY };
+  }
   context.save(); context.translate(rect.left + rect.width / 2, rect.top + rect.height / 2); context.rotate(state.tiltDegrees * Math.PI / 180); context.translate(-(rect.left + rect.width / 2), -(rect.top + rect.height / 2));
   if (state.phase === 'burn' && state.elapsedMs >= 0) {
     updateBurnGeometryInto(options.burnGeometry, rect, burnProgress(state), options.burnSeed);
@@ -364,7 +424,10 @@ export function paintLetterScene(context: CanvasRenderingContext2D, options: Let
   const openEnvelopeBack = options.assets?.openEnvelopeBack;
   const openEnvelopeFront = options.assets?.openEnvelopeFront;
   const legacyOpenEnvelope = options.assets?.openEnvelope;
-  if (!ritualClear && openEnvelopeBack && openEnvelopeFront) {
+  if (!ritualClear && state.phase === 'edit') {
+    // 编辑态让原始信纸独占可用视口，避免信封层把放大后的纸面截断。
+    paintActivePostcard(context, options);
+  } else if (!ritualClear && openEnvelopeBack && openEnvelopeFront) {
     // 真实遮挡顺序：后片/内衬 → 信纸 → V 字正面。正面层不再依赖近似裁剪。
     paintEnvelopeAssetLayer(context, layout.envelopeRect, openEnvelopeBack, options.envelopeAppearanceId, true);
     if (state.phase === 'idle') paintFoldedTop(context, layout.foldedCardRect, options.paperAppearanceId, options.assets?.letterPaper);

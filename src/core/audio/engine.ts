@@ -1,7 +1,7 @@
 import { createSeededRandomNumberGenerator } from '../utility/deterministic-random';
 import { createGenerativePianoPlanner, midiNoteToFrequencyHertz, type GenerativePianoPlanner } from './bgm-planner';
 import { createBgmReverbChain, scheduleGenerativePianoNote } from './bgm-player';
-import { scheduleBurningNoise, scheduleExtinguish, scheduleIgnition, startPostcardRustle, stopNoiseVoice, type ActiveNoiseVoice } from './fire-sound';
+import { scheduleBurningNoise, scheduleExtinguish, scheduleIgnition } from './fire-sound';
 import { AUDIO_SYNTHESIS_PARAMETERS } from './parameters';
 
 export interface AudioEngineOptions { createAudioContext: () => BaseAudioContext | null }
@@ -21,9 +21,17 @@ export class AudioEngine {
   private sfxBus: GainNode | null = null;
   private bgmBus: GainNode | null = null;
   private noise: AudioBuffer | null = null;
-  private rustle: ActiveNoiseVoice | null = null;
   private unlocked = false;
   private reunlockRequired = false;
+  /** 随包「信纸抽出」素材：原始字节在启动时注入，首次发声时才解码（音频上下文保持惰性创建）。 */
+  private envelopeDrawOutBytes: ArrayBuffer | null = null;
+  private envelopeDrawOutBuffer: AudioBuffer | null = null;
+  private envelopeDrawOutDecodeFailed = false;
+  /** 进行中的解码/补播链；测试等待其结算以保证离线渲染前素材已调度。 */
+  private envelopeDrawOutDecoding: Promise<void> | null = null;
+  private envelopeDrawOutPlayedForGesture = false;
+  /** 首个触摸同时完成音频解锁时，暂存一次抽出声，避免异步解锁竞态丢声。 */
+  private pendingEnvelopeDrawOutPulse = false;
   private bgmPlaying = false;
   private planner: GenerativePianoPlanner | null = null;
   private bgmOrigin = 0;
@@ -55,20 +63,70 @@ export class AudioEngine {
     const context = this.ensureContext(); if (!context) return false;
     if (!await resumeAudioContextIfNeeded(context)) return false;
     try { playSilenceBuffer(context); } catch { /* capability fallback */ }
-    this.unlocked = true; this.reunlockRequired = false; return true;
+    this.unlocked = true; this.reunlockRequired = false;
+    if (this.pendingEnvelopeDrawOutPulse) {
+      this.pendingEnvelopeDrawOutPulse = false;
+      this.envelopeDrawOutPlayedForGesture = false;
+      this.envelopeDrawOutPulse();
+    }
+    return true;
   }
-  handleAudioInterruption(phase: 'begin' | 'end'): void { if (phase === 'begin') { this.unlocked = false; this.reunlockRequired = true; this.stopBgm(); this.stopRustle(); } }
+  handleAudioInterruption(phase: 'begin' | 'end'): void { if (phase === 'begin') { this.unlocked = false; this.reunlockRequired = true; this.stopBgm(); this.resetEnvelopeDrawOutGesture(); } }
   handleAppVisibilityChange(visible: boolean): void { if (!visible) this.stopBgm(); else if (this.unlocked) this.startBgm(); }
-  startRustle(): void {
-    if (!this.unlocked || this.rustle) return; const context = this.ensurePipeline(); if (!context || !this.sfxBus) return; const noise = this.noiseBuffer(context); if (!noise) return;
-    this.rustle = startPostcardRustle(context, this.sfxBus, noise, context.currentTime, AUDIO_SYNTHESIS_PARAMETERS.postcardRustle);
+  /** 注入随包「信纸抽出」素材字节；返回前不做任何解码，保持音频上下文惰性创建。 */
+  setEnvelopeDrawOutSample(bytes: ArrayBuffer | null): void {
+    this.envelopeDrawOutBytes = bytes;
+    this.envelopeDrawOutBuffer = null;
+    this.envelopeDrawOutDecodeFailed = false;
   }
-  stopRustle(): void {
-    if (!this.rustle || !this.context) return; stopNoiseVoice(this.rustle, this.context.currentTime, AUDIO_SYNTHESIS_PARAMETERS.postcardRustle.fadeOutSeconds); this.rustle = null;
+  /** 抽信手势第一次产生有效位移时播放随包抽出素材，后续移动不重复触发；素材缺失/解码失败时静默，无合成回退。 */
+  envelopeDrawOutPulse(): void {
+    if (this.envelopeDrawOutPlayedForGesture) return;
+    this.envelopeDrawOutPlayedForGesture = true;
+    if (!this.unlocked) { this.pendingEnvelopeDrawOutPulse = true; return; }
+    this.playEnvelopeDrawOutSample();
+  }
+  /** 手势结束（松手/回弹）后复位一次性触发标记；素材自然播完，不截断尾音。 */
+  resetEnvelopeDrawOutGesture(): void {
+    this.pendingEnvelopeDrawOutPulse = false;
+    this.envelopeDrawOutPlayedForGesture = false;
+  }
+  /** 等待“补播 + 解码 + 调度播放”结算；无待处理时立即返回。离线渲染测试用其消除解码竞态。 */
+  async whenEnvelopeDrawOutSettled(): Promise<void> {
+    while (this.pendingEnvelopeDrawOutPulse || this.envelopeDrawOutDecoding) {
+      const pending = this.envelopeDrawOutDecoding ?? Promise.resolve();
+      await pending;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+  private playEnvelopeDrawOutSample(): void {
+    const context = this.ensurePipeline(); if (!context || !this.sfxBus) return;
+    if (this.envelopeDrawOutBuffer) {
+      this.startEnvelopeDrawOutSource(context);
+      return;
+    }
+    if (!this.envelopeDrawOutBytes || this.envelopeDrawOutDecodeFailed) return;
+    // 首次发声时解码并缓存；解码会转移字节所有权，失败后标记不再重试
+    const bytes = this.envelopeDrawOutBytes;
+    this.envelopeDrawOutBytes = null;
+    this.envelopeDrawOutDecoding = context.decodeAudioData(bytes)
+      .then((buffer) => {
+        this.envelopeDrawOutBuffer = buffer;
+        this.startEnvelopeDrawOutSource(context);
+      })
+      .catch(() => { this.envelopeDrawOutDecodeFailed = true; })
+      .finally(() => { this.envelopeDrawOutDecoding = null; });
+  }
+  private startEnvelopeDrawOutSource(context: BaseAudioContext): void {
+    if (!this.sfxBus || !this.envelopeDrawOutBuffer) return;
+    const source = context.createBufferSource();
+    source.buffer = this.envelopeDrawOutBuffer;
+    source.connect(this.sfxBus);
+    source.start();
   }
   ignite(): void {
     if (!this.unlocked) return; const context = this.ensurePipeline(); if (!context || !this.sfxBus) return; const noise = this.noiseBuffer(context); if (!noise) return;
-    this.stopRustle(); scheduleIgnition(context, this.sfxBus, noise, context.currentTime, AUDIO_SYNTHESIS_PARAMETERS.ignition); scheduleBurningNoise(context, this.sfxBus, noise, context.currentTime, AUDIO_SYNTHESIS_PARAMETERS.burn);
+    scheduleIgnition(context, this.sfxBus, noise, context.currentTime, AUDIO_SYNTHESIS_PARAMETERS.ignition); scheduleBurningNoise(context, this.sfxBus, noise, context.currentTime, AUDIO_SYNTHESIS_PARAMETERS.burn);
   }
   extinguish(): void {
     if (!this.unlocked) return; const context = this.ensurePipeline(); if (!context || !this.sfxBus) return; const noise = this.noiseBuffer(context); if (!noise) return;

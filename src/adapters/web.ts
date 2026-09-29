@@ -14,7 +14,12 @@ const MAX_RENDER_SCALE = 3;
 export function resolveRenderScale(devicePixelRatio: number): number {
   return Math.max(1, Math.min(devicePixelRatio, MAX_RENDER_SCALE));
 }
-export function normalizeSingleLineInput(value: string): string { return value.replace(/[\r\n]+/g, ' '); }
+export function limitUnicodeLength(value: string, maximumLength: number): string {
+  return Array.from(value).slice(0, maximumLength).join('');
+}
+export function normalizeMultilineInput(value: string, maximumLength: number): string {
+  return limitUnicodeLength(value.replace(/\r\n?/g, '\n'), maximumLength);
+}
 
 export interface StorageBackend {
   get(key: string): Promise<string | null>;
@@ -52,14 +57,19 @@ function readSafeAreaCssVariable(variableName: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function createOverlayShell(): HTMLDivElement {
+function createOverlayShell(transparent = false): HTMLDivElement {
   const shell = document.createElement('div');
-  Object.assign(shell.style, { position: 'fixed', inset: '0', zIndex: '20', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', boxSizing: 'border-box', background: 'rgba(70,55,45,.28)', fontFamily: "ui-rounded,'PingFang SC',sans-serif" });
+  Object.assign(shell.style, { position: 'fixed', inset: '0', zIndex: '20', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', boxSizing: 'border-box', background: transparent ? 'transparent' : 'rgba(70,55,45,.28)', fontFamily: "ui-rounded,'PingFang SC',sans-serif" });
   return shell;
 }
 function createPaperPanel(): HTMLDivElement {
   const panel = document.createElement('div');
   Object.assign(panel.style, { width: 'min(420px, 100%)', padding: '26px', boxSizing: 'border-box', borderRadius: '20px', background: '#F7EFE4', color: '#495853', boxShadow: '0 18px 55px rgba(74,55,42,.22)' });
+  return panel;
+}
+function createWritingPanel(): HTMLDivElement {
+  const panel = document.createElement('div');
+  Object.assign(panel.style, { width: 'min(560px, 100%)', minHeight: 'min(68vh, 620px)', padding: 'clamp(22px, 6vw, 42px)', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', color: '#495853' });
   return panel;
 }
 function button(label: string, primary = false): HTMLButtonElement {
@@ -68,17 +78,31 @@ function button(label: string, primary = false): HTMLButtonElement {
   return element;
 }
 
-function requestSingleLineText(request: TextInputRequest): Promise<string | null> {
+function requestMultilineText(request: TextInputRequest): Promise<string | null> {
   return new Promise((resolve) => {
-    const shell = createOverlayShell(); const panel = createPaperPanel(); const input = document.createElement('input');
-    input.type = 'text'; input.value = request.initialValue; input.placeholder = request.placeholder; input.maxLength = request.maxLength; input.autocomplete = 'off'; input.autocapitalize = 'none'; input.spellcheck = false; input.setAttribute('autocorrect', 'off'); input.enterKeyHint = 'done';
-    Object.assign(input.style, { width: '100%', boxSizing: 'border-box', padding: '13px 4px', border: 'none', borderBottom: '1px solid #BCA891', outline: 'none', background: 'transparent', color: '#495853', font: "17px ui-rounded,'PingFang SC',sans-serif" });
-    const actions = document.createElement('div'); Object.assign(actions.style, { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '22px' });
+    const shell = createOverlayShell(true); const panel = createWritingPanel();
+    // 用 contenteditable 代替 <textarea>：WebKit 只为表单文本域显示「第 X 行，共 Y 行/完成」
+    // 原生附件条，contenteditable 聚焦时不出现该条；plaintext-only 保持纯文本输入与粘贴。
+    const input = document.createElement('div');
+    try { input.contentEditable = 'plaintext-only'; } catch { input.contentEditable = 'true'; }
+    input.textContent = normalizeMultilineInput(request.initialValue, request.maxLength);
+    input.autocapitalize = 'none'; input.spellcheck = false; input.setAttribute('autocorrect', 'off');
+    Object.assign(input.style, { width: '100%', flex: '1', minHeight: 'min(42vh, 360px)', boxSizing: 'border-box', padding: '14px 6px', outline: 'none', overflowY: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'break-word', background: 'transparent', color: '#354940', font: `18px/1.55 ${request.fontFamily ?? "'Letter LXGW WenKai',cursive"}`, caretColor: '#6F4F3E' });
+    const actions = document.createElement('div'); Object.assign(actions.style, { position: 'fixed', left: '50%', bottom: 'calc(env(safe-area-inset-bottom, 0px) + clamp(28px, 7vh, 76px))', transform: 'translateX(-50%)', width: 'min(280px, calc(100vw - 48px))', display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '0', zIndex: '22' });
     const cancel = button(COPY.cancel); const done = button(COPY.confirm, true);
     let finished = false;
+    // innerText 把 contenteditable 的换行读成 \n；行内不间断空格归一为普通空格后，再按 Unicode 码点裁切长度
+    const readInput = (): string => input.innerText.replace(/\u00a0/g, ' ');
+    const normalizeInput = (): string => {
+      const current = readInput();
+      const normalized = normalizeMultilineInput(current, request.maxLength);
+      if (normalized !== current) input.textContent = normalized;
+      return normalized;
+    };
     const finish = (result: string | null) => { if (finished) return; finished = true; input.blur(); shell.remove(); window.setTimeout(() => resolve(result), 50); };
-    cancel.onclick = () => finish(null); done.onclick = () => finish(normalizeSingleLineInput(input.value));
-    input.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); finish(normalizeSingleLineInput(input.value)); } if (event.key === 'Escape') finish(null); });
+    cancel.onclick = () => finish(null); done.onclick = () => finish(normalizeInput());
+    input.addEventListener('input', normalizeInput);
+    input.addEventListener('keydown', (event) => { if (event.key === 'Escape') finish(null); if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); finish(normalizeInput()); } });
     actions.append(cancel, done); panel.append(input, actions); shell.append(panel); document.body.append(shell); window.setTimeout(() => input.focus(), 30);
   });
 }
@@ -171,7 +195,7 @@ export function createWebPlatformAdapter(): PlatformAdapter {
     onAudioInterruption(listener) { interruptionListeners.add(listener); },
     readPersistentValue(key) { return storage.read(key); },
     writePersistentValue(key, value) { return storage.write(key, value); },
-    requestSingleLineText,
+    requestMultilineText,
     requestPrivacyConsent,
     requestConfirmation(message) { return Promise.resolve(window.confirm(message)); },
     openExternalUrl,
@@ -202,6 +226,14 @@ export function createWebPlatformAdapter(): PlatformAdapter {
         image.onerror = () => resolve(null);
         image.src = assetUrl;
       });
+    },
+    async loadBundledAudio(assetUrl) {
+      try {
+        const response = await fetch(assetUrl);
+        return response.ok ? await response.arrayBuffer() : null;
+      } catch {
+        return null;
+      }
     },
   };
 }

@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { OfflineAudioContext } from 'node-web-audio-api';
 import { AudioEngine } from '../../src/core/audio/engine';
 import {
   playSilenceBuffer,
   resumeAudioContextIfNeeded,
 } from '../../src/core/audio/engine';
+import { createWavSampleBytes } from './wav-bytes';
 
 /**
  * 手势解锁与中断恢复单测（任务 5.4 验证入口，对应 procedural-audio 规格）：
@@ -90,6 +92,27 @@ describe('静音 buffer 兜底播放', () => {
 });
 
 describe('AudioEngine 解锁与中断状态机', () => {
+  it('首次手势在异步解锁完成前移动信纸时，抽出素材排队且只补播一枚', async () => {
+    const context = new OfflineAudioContext(1, 44100, 44100);
+    const engine = new AudioEngine({
+      createAudioContext: () => context as unknown as AudioContext,
+    });
+    engine.setEnvelopeDrawOutSample(createWavSampleBytes(0.3));
+
+    // 模拟 Game 在同一轮触摸中先发起 unlock，再同步消费一次有效位移。
+    const unlocking = engine.unlock();
+    engine.envelopeDrawOutPulse();
+    expect(engine.isUnlocked()).toBe(false);
+    expect(await unlocking).toBe(true);
+    await engine.whenEnvelopeDrawOutSettled();
+
+    const rendered = await context.startRendering();
+    const samples = rendered.getChannelData(0);
+    let peak = 0;
+    for (const sample of samples) peak = Math.max(peak, Math.abs(sample));
+    expect(peak).toBeGreaterThan(0.01);
+  });
+
   it('unlock 前静默（不创建上下文、不发声），首次 unlock 后进入已解锁态', async () => {
     let contextCreationCount = 0;
     const engine = new AudioEngine({

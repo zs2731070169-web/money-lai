@@ -22,18 +22,6 @@ export interface LetterSceneAssets {
   letterPaper?: CanvasImageSource | null;
 }
 
-function appearanceFilter(id: string): string {
-  switch (id) {
-    case 'envelope-rose': return 'sepia(0.08) saturate(0.82) hue-rotate(325deg) brightness(1.02)';
-    case 'envelope-moss': return 'sepia(0.1) saturate(0.72) hue-rotate(52deg) brightness(0.98)';
-    case 'envelope-night': return 'sepia(0.08) saturate(0.66) hue-rotate(150deg) brightness(0.91)';
-    case 'paper-fiber': return 'sepia(0.07) saturate(0.86) brightness(0.99)';
-    case 'paper-sand': return 'sepia(0.14) saturate(0.88) brightness(0.97)';
-    case 'paper-mist': return 'saturate(0.7) brightness(1.035)';
-    default: return 'none';
-  }
-}
-
 function paintCoverImage(
   context: CanvasRenderingContext2D,
   image: CanvasImageSource,
@@ -90,38 +78,21 @@ function paintLetterPaperRegion(
   sourceTop: number,
   sourceHeight: number,
   image?: CanvasImageSource | null,
-  paperId = 'paper-plain',
 ): void {
   if (!image) return;
-  context.save(); context.filter = appearanceFilter(paperId);
   context.drawImage(
     image,
     LETTER_PAPER_SOURCE_LEFT, LETTER_PAPER_SOURCE_TOP + sourceTop, LETTER_PAPER_SOURCE_WIDTH, sourceHeight,
     rect.left, rect.top, rect.width, rect.height,
   );
-  context.restore();
 }
 
 export function paintLetterPaperAsset(
   context: CanvasRenderingContext2D,
   rect: Rect,
   image?: CanvasImageSource | null,
-  paperId = 'paper-plain',
 ): void {
-  paintLetterPaperRegion(context, rect, 0, LETTER_PAPER_SOURCE_HEIGHT, image, paperId);
-}
-
-/** 菜单外观预览也直接取真实信封位图，只施加与主场景相同的克制色调。 */
-export function paintEnvelopeAssetPreview(
-  context: CanvasRenderingContext2D,
-  rect: Rect,
-  image?: CanvasImageSource | null,
-  appearanceId = 'envelope-kraft',
-): void {
-  if (!image) return;
-  context.save(); context.filter = appearanceFilter(appearanceId);
-  context.drawImage(image, rect.left, rect.top, rect.width, rect.height);
-  context.restore();
+  paintLetterPaperRegion(context, rect, 0, LETTER_PAPER_SOURCE_HEIGHT, image);
 }
 
 function wrapTextLines(
@@ -178,11 +149,10 @@ export function paintPaperWriting(
   context: CanvasRenderingContext2D,
   rect: Rect,
   text: string,
-  prompt: string,
   fontPackageId: FontPackageId = DEFAULT_FONT_PACKAGE_ID,
 ): void {
-  const content = text || prompt;
-  if (!content) return;
+  // 空文字保持纸面留白：引导语只出现在放大编辑的输入层，不再印到缩小后的信纸上
+  if (!text) return;
   const writingLeft = rect.left + rect.width * 0.16;
   const writingTop = rect.top + rect.height * 0.14;
   const writingWidth = rect.width * 0.68;
@@ -201,7 +171,7 @@ export function paintPaperWriting(
 
   for (let candidateSize = preferredFontSize; candidateSize >= minimumFontSize; candidateSize -= 1) {
     context.font = `${candidateSize}px ${fontStackForPackage(fontPackageId)}`;
-    const candidateLines = wrapTextLines(context, content, writingWidth);
+    const candidateLines = wrapTextLines(context, text, writingWidth);
     const candidateLineHeight = candidateSize * lineHeightScale;
     fontSize = candidateSize;
     lineHeight = candidateLineHeight;
@@ -226,18 +196,16 @@ export function paintPaperWriting(
 function paintCardFace(
   context: CanvasRenderingContext2D,
   rect: Rect,
-  paperId: string,
   showWriting: boolean,
   text: string,
-  prompt: string,
   fontPackageId: FontPackageId,
   letterPaper?: CanvasImageSource | null,
 ): void {
   context.save();
   context.shadowColor = 'rgba(76,53,38,.18)'; context.shadowBlur = 18; context.shadowOffsetY = 7;
-  paintLetterPaperAsset(context, rect, letterPaper, paperId);
+  paintLetterPaperAsset(context, rect, letterPaper);
   context.shadowColor = 'transparent';
-  if (showWriting) paintPaperWriting(context, rect, text, prompt, fontPackageId);
+  if (showWriting) paintPaperWriting(context, rect, text, fontPackageId);
   context.restore();
 }
 
@@ -255,7 +223,6 @@ function paintEnvelopeAssetLayer(
   context: CanvasRenderingContext2D,
   rect: Rect,
   image: CanvasImageSource,
-  appearanceId: string,
   shadow = false,
   opacity = 1,
 ): void {
@@ -265,17 +232,16 @@ function paintEnvelopeAssetLayer(
   if (shadow) {
     context.shadowColor = 'rgba(77,55,39,.2)'; context.shadowBlur = 20; context.shadowOffsetY = 8;
   }
-  context.filter = appearanceFilter(appearanceId);
   context.drawImage(image, target.left, target.top, target.width, target.height);
   context.restore();
 }
 
-function paintBurningCard(context: CanvasRenderingContext2D, rect: Rect, paperId: string, geometry: BurnGeometryBuffer, text: string, fontPackageId: FontPackageId, letterPaper?: CanvasImageSource | null): void {
+function paintBurningCard(context: CanvasRenderingContext2D, rect: Rect, geometry: BurnGeometryBuffer, text: string, fontPackageId: FontPackageId, letterPaper?: CanvasImageSource | null): void {
   context.save();
   context.beginPath(); context.moveTo(rect.left, rect.top + rect.height); context.lineTo(rect.left + rect.width, rect.top + rect.height);
   for (let index = geometry.lineX.length - 1; index >= 0; index -= 1) context.lineTo(geometry.lineX[index], geometry.lineY[index]);
   context.closePath(); context.clip();
-  paintCardFace(context, rect, paperId, Boolean(text), text, '', fontPackageId, letterPaper); context.restore();
+  paintCardFace(context, rect, Boolean(text), text, fontPackageId, letterPaper); context.restore();
   context.save(); context.lineJoin = 'round'; context.lineCap = 'round'; context.beginPath(); context.moveTo(geometry.lineX[0], geometry.lineY[0] + 3);
   for (let index = 1; index < geometry.lineX.length; index += 1) context.lineTo(geometry.lineX[index], geometry.lineY[index]);
   context.strokeStyle = '#49372F'; context.lineWidth = 11; context.globalAlpha = 0.86; context.stroke();
@@ -303,7 +269,7 @@ function paintBurningCard(context: CanvasRenderingContext2D, rect: Rect, paperId
 
 export interface LetterScenePaintOptions {
   width: number; height: number; layout: LetterSceneLayout; state: BurningState;
-  prompt: string; envelopeAppearanceId: string; paperAppearanceId: string; burnGeometry: BurnGeometryBuffer; burnSeed: number;
+  burnGeometry: BurnGeometryBuffer; burnSeed: number;
   menuGlowProgress: number;
   fontPackageId?: FontPackageId;
   reducedMotion?: boolean;
@@ -313,11 +279,10 @@ export interface LetterScenePaintOptions {
 function paintFoldedTop(
   context: CanvasRenderingContext2D,
   foldedRect: Rect,
-  paperId: string,
   letterPaper?: CanvasImageSource | null,
   creaseAlpha = 1,
 ): void {
-  paintLetterPaperRegion(context, foldedRect, 0, LETTER_PAPER_SOURCE_HEIGHT / 2, letterPaper, paperId);
+  paintLetterPaperRegion(context, foldedRect, 0, LETTER_PAPER_SOURCE_HEIGHT / 2, letterPaper);
   if (creaseAlpha > 0) {
     const crease = foldedRect.top + foldedRect.height;
     const gradient = context.createLinearGradient(0, crease - 18, 0, crease);
@@ -355,11 +320,11 @@ function paintFoldedLetter(context: CanvasRenderingContext2D, options: LetterSce
   context.clip();
   context.translate(foldedRect.left + foldedRect.width / 2, crease); context.rotate(tiltDegrees * Math.PI / 180); context.translate(-(foldedRect.left + foldedRect.width / 2), -crease);
   context.shadowColor = 'rgba(76,53,38,.18)'; context.shadowBlur = 18; context.shadowOffsetY = 7;
-  paintFoldedTop(context, foldedRect, options.paperAppearanceId, options.assets?.letterPaper, 1 - unfoldEased);
+  paintFoldedTop(context, foldedRect, options.assets?.letterPaper, 1 - unfoldEased);
   context.shadowColor = 'transparent';
   if (unfoldEased > 0) {
     const lowerRect = { left: foldedRect.left, top: crease, width: foldedRect.width, height: halfHeight * unfoldEased };
-    paintLetterPaperRegion(context, lowerRect, LETTER_PAPER_SOURCE_HEIGHT / 2, LETTER_PAPER_SOURCE_HEIGHT / 2, options.assets?.letterPaper, options.paperAppearanceId);
+    paintLetterPaperRegion(context, lowerRect, LETTER_PAPER_SOURCE_HEIGHT / 2, LETTER_PAPER_SOURCE_HEIGHT / 2, options.assets?.letterPaper);
   }
   context.restore();
 }
@@ -432,8 +397,8 @@ function paintActivePostcard(context: CanvasRenderingContext2D, options: LetterS
   context.save(); context.translate(rect.left + rect.width / 2, rect.top + rect.height / 2); context.rotate(state.tiltDegrees * Math.PI / 180); context.translate(-(rect.left + rect.width / 2), -(rect.top + rect.height / 2));
   if (state.phase === 'burn' && state.elapsedMs >= 0) {
     updateBurnGeometryInto(options.burnGeometry, rect, burnProgress(state), options.burnSeed);
-    paintBurningCard(context, rect, options.paperAppearanceId, options.burnGeometry, state.text, options.fontPackageId ?? DEFAULT_FONT_PACKAGE_ID, options.assets?.letterPaper);
-  } else paintCardFace(context, rect, options.paperAppearanceId, state.phase !== 'front', state.text, options.prompt, options.fontPackageId ?? DEFAULT_FONT_PACKAGE_ID, options.assets?.letterPaper);
+    paintBurningCard(context, rect, options.burnGeometry, state.text, options.fontPackageId ?? DEFAULT_FONT_PACKAGE_ID, options.assets?.letterPaper);
+  } else paintCardFace(context, rect, state.phase !== 'front', state.text, options.fontPackageId ?? DEFAULT_FONT_PACKAGE_ID, options.assets?.letterPaper);
   context.restore();
 }
 
@@ -450,19 +415,19 @@ export function paintLetterScene(context: CanvasRenderingContext2D, options: Let
     paintActivePostcard(context, options);
   } else if (!ritualClear && openEnvelopeBack && openEnvelopeFront) {
     // 真实遮挡顺序：后片/内衬 → 信纸 → V 字正面。正面层不再依赖近似裁剪。
-    paintEnvelopeAssetLayer(context, layout.envelopeRect, openEnvelopeBack, options.envelopeAppearanceId, true);
-    if (state.phase === 'idle') paintFoldedTop(context, layout.foldedCardRect, options.paperAppearanceId, options.assets?.letterPaper);
+    paintEnvelopeAssetLayer(context, layout.envelopeRect, openEnvelopeBack, true);
+    if (state.phase === 'idle') paintFoldedTop(context, layout.foldedCardRect, options.assets?.letterPaper);
     else paintActivePostcard(context, options);
     if (envelopeFrontAlpha > 0) {
-      paintEnvelopeAssetLayer(context, layout.envelopeRect, openEnvelopeFront, options.envelopeAppearanceId, false, envelopeFrontAlpha);
+      paintEnvelopeAssetLayer(context, layout.envelopeRect, openEnvelopeFront, false, envelopeFrontAlpha);
     }
   } else if (!ritualClear && legacyOpenEnvelope) {
     // 仅为旧快照/菜单测试保留；发行入口不会走这条路径。
-    paintEnvelopeAssetLayer(context, layout.envelopeRect, legacyOpenEnvelope, options.envelopeAppearanceId, true);
-    if (state.phase === 'idle') paintFoldedTop(context, layout.foldedCardRect, options.paperAppearanceId, options.assets?.letterPaper);
+    paintEnvelopeAssetLayer(context, layout.envelopeRect, legacyOpenEnvelope, true);
+    if (state.phase === 'idle') paintFoldedTop(context, layout.foldedCardRect, options.assets?.letterPaper);
     else paintActivePostcard(context, options);
     if (envelopeFrontAlpha > 0) {
-      paintEnvelopeAssetLayer(context, layout.envelopeRect, legacyOpenEnvelope, options.envelopeAppearanceId, false, envelopeFrontAlpha);
+      paintEnvelopeAssetLayer(context, layout.envelopeRect, legacyOpenEnvelope, false, envelopeFrontAlpha);
     }
   } else if (!ritualClear) paintActivePostcard(context, options);
   const glow = afterglowVisual(state);

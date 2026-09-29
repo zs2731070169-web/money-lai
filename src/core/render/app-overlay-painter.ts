@@ -1,15 +1,15 @@
-import { COPY, FONT_PACKAGE_COPY, formatAppearanceName, formatAppearanceUnlockMileage } from '../content/copy';
+import { COPY, FONT_PACKAGE_COPY } from '../content/copy';
 import type { JournalEntry, LetterBurningPersistedState } from '../journal/journal-state';
 import { computeJournalLayout } from '../journal/journal-layout';
-import { POSTCARD_CATALOG } from '../letter/postcard-catalog';
-import { APPEARANCES, LETTER_ACHIEVEMENTS } from '../meta/postcard-progress';
+import { LETTER_ACHIEVEMENTS } from '../meta/postcard-progress';
 import { FONT_PACKAGES, fontStackForPackage } from './letter-font';
 import type { SafeAreaInsets } from '../platform';
 import type { Rect } from './letter-layout';
 import { containsPoint } from './letter-layout';
 import type { AppPage, MenuLayout } from './menu-layout';
 import { computeMenuLayout } from './menu-layout';
-import { paintEnvelopeAssetPreview, paintLetterPaperAsset, paintPaperBackground } from './letter-painter';
+import { LETTER_THEMES } from './letter-theme';
+import { paintLetterPaperAsset, paintPaperBackground } from './letter-painter';
 
 const INK = '#495853';
 const LETTER_RATIO = 491 / 733;
@@ -33,12 +33,13 @@ function title(context: CanvasRenderingContext2D, label: string, width: number, 
   context.textAlign = 'left'; context.font = "16px ui-rounded,'PingFang SC',sans-serif"; context.fillText(COPY.backLabel, safe.left + 19, safe.top + 38);
 }
 
-function paintMenu(context: CanvasRenderingContext2D, layout: MenuLayout, slideRatio: number, viewportWidth: number): void {
+function paintMenu(context: CanvasRenderingContext2D, layout: MenuLayout, slideRatio: number, viewportWidth: number, viewportHeight: number): void {
   const ratio = Math.max(0, Math.min(1, slideRatio));
   context.save();
   // 遮罩随展开比例淡入淡出；面板整体从右缘滑入（ratio=1 时位移为零）
   context.globalAlpha = ratio;
-  context.fillStyle = 'rgba(74,59,47,.2)'; context.fillRect(0, 0, layout.panelRect.left, layout.panelRect.top + layout.panelRect.height);
+  // 全屏遮罩（面板随后绘制覆盖其上）；调暗/调浅改颜色里的 alpha（0–1），如 .28 更暗、.14 更浅
+  context.fillStyle = 'rgba(74,59,47,.2)'; context.fillRect(0, 0, viewportWidth, viewportHeight);
   context.globalAlpha = 1;
   context.translate((1 - ratio) * (viewportWidth - layout.panelRect.left), 0);
   context.shadowColor = 'rgba(65,49,39,.18)'; context.shadowBlur = 26; context.fillStyle = '#F6ECDD'; context.fillRect(layout.panelRect.left, layout.panelRect.top, layout.panelRect.width, layout.panelRect.height); context.shadowColor = 'transparent';
@@ -72,7 +73,6 @@ function paintJournal(
   scroll: number,
   selectedEntryIndex: number | null,
   letterPaper?: CanvasImageSource | null,
-  paperAppearanceId = 'paper-plain',
 ): void {
   const layout = computeJournalLayout(width, height, safe, entries.length, scroll); title(context, COPY.journal, width, safe);
   for (const cell of layout.cells) {
@@ -80,7 +80,7 @@ function paintJournal(
     const artArea = { ...cell.rect, height: cell.rect.height - 23 };
     context.save(); context.shadowColor = 'rgba(64,49,38,.14)'; context.shadowBlur = 8; context.shadowOffsetY = 3;
     const paperRect = containLetter(artArea, 2);
-    paintLetterPaperAsset(context, paperRect, letterPaper, paperAppearanceId); context.restore();
+    paintLetterPaperAsset(context, paperRect, letterPaper); context.restore();
     context.fillStyle = INK; context.globalAlpha = 0.7; context.font = "11px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center'; context.fillText(entry.createdAtIso.slice(0, 10), cell.rect.left + cell.rect.width / 2, cell.rect.top + cell.rect.height - 7); context.globalAlpha = 1;
   }
   context.fillStyle = INK; context.globalAlpha = 0.56; context.textAlign = 'center'; context.font = "12px ui-rounded,'PingFang SC',sans-serif"; context.fillText(COPY.localOnly, width / 2, layout.noteY); context.globalAlpha = 1;
@@ -94,7 +94,7 @@ function paintJournal(
     context.fillStyle = '#F8F0E4'; context.shadowColor = 'rgba(65,49,39,.2)'; context.shadowBlur = 22; context.fillRect(detail.left, detail.top, detail.width, detail.height); context.shadowColor = 'transparent';
     const paperArea = { left: detail.left + 22, top: detail.top + 18, width: detail.width - 44, height: Math.min(260, detail.height * 0.64) };
     const paperRect = containLetter(paperArea, 0);
-    paintLetterPaperAsset(context, paperRect, letterPaper, paperAppearanceId);
+    paintLetterPaperAsset(context, paperRect, letterPaper);
     const textTop = paperArea.top + paperArea.height + 14;
     context.fillStyle = INK; context.textAlign = 'left'; context.globalAlpha = 0.7; context.font = "13px ui-rounded,'PingFang SC',sans-serif"; context.fillText(entry.createdAtIso.slice(0, 10), detail.left + 24, textTop);
     if (entry.text) { context.globalAlpha = 0.92; context.font = "16px ui-rounded,'PingFang SC',sans-serif"; context.fillText(entry.text, detail.left + 24, textTop + 34, detail.width - 48); }
@@ -102,73 +102,56 @@ function paintJournal(
   }
 }
 
-export interface GalleryLayout { cells: Array<{ patternIndex: number; rect: Rect }>; maximumScroll: number }
-
-export function computeGalleryLayout(width: number, height: number, safe: SafeAreaInsets, scroll: number): GalleryLayout {
-  const contentTop = safe.top + 96; const viewportBottom = height - safe.bottom - 20;
-  const single = POSTCARD_CATALOG.length === 1;
-  const columns = single ? 1 : 2; const gap = 18; const padding = single ? 36 : 24;
-  const cellWidth = single ? Math.min(230, width - padding * 2) : (width - padding * 2 - gap) / columns;
-  const cellHeight = cellWidth * 733 / 491; const rowHeight = cellHeight + 20;
-  const rows = Math.ceil(POSTCARD_CATALOG.length / columns);
-  const maximumScroll = Math.max(0, rows * rowHeight - (viewportBottom - contentTop));
-  const cells = POSTCARD_CATALOG.map((_item, patternIndex) => {
-    const column = patternIndex % columns;
-    const row = Math.floor(patternIndex / columns);
-    const left = single ? (width - cellWidth) / 2 : padding + column * (cellWidth + gap);
-    return { patternIndex, rect: { left, top: contentTop + row * rowHeight - Math.min(scroll, maximumScroll), width: cellWidth, height: cellHeight } };
-  }).filter((cell) => cell.rect.top + cell.rect.height >= contentTop && cell.rect.top <= viewportBottom);
-  return { cells, maximumScroll };
-}
-
-function paintGallery(
-  context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  safe: SafeAreaInsets,
-  state: LetterBurningPersistedState,
-  scroll: number,
-  letterPaper?: CanvasImageSource | null,
-): void {
-  title(context, COPY.gallery, width, safe); const layout = computeGalleryLayout(width, height, safe, scroll);
-  context.save(); context.beginPath(); context.rect(0, safe.top + 72, width, height - safe.top - safe.bottom - 72); context.clip();
-  for (const cell of layout.cells) {
-    const item = POSTCARD_CATALOG[cell.patternIndex]; const rect = cell.rect;
-    const collected = state.collectedPatternIds.includes(item.id);
-    context.save(); context.globalAlpha = collected ? 1 : 0.24;
-    paintLetterPaperAsset(context, rect, letterPaper, state.activePaperAppearanceId);
-    context.restore();
-  }
-  context.restore();
-}
-
 function paintFontPackages(
   context: CanvasRenderingContext2D,
   width: number,
   safe: SafeAreaInsets,
   activeFontPackageId: string,
-  letterPaper?: CanvasImageSource | null,
 ): void {
   title(context, COPY.fontPackages, width, safe);
   const rects = computeFontPackageItemRects(width, safe, FONT_PACKAGES.length);
   FONT_PACKAGES.forEach((fontPackage, index) => {
     const row = rects[index];
     const selected = fontPackage.id === activeFontPackageId;
-    const previewRect = containLetter({ left: row.left, top: row.top, width: 58, height: 72 }, 0);
-    context.save();
-    context.globalAlpha = selected ? 1 : 0.84;
-    paintLetterPaperAsset(context, previewRect, letterPaper, 'paper-plain');
-    context.restore();
     const packageCopy = FONT_PACKAGE_COPY[fontPackage.copyKey];
     context.fillStyle = INK; context.globalAlpha = selected ? 1 : 0.78; context.textAlign = 'left';
     context.font = "15px ui-rounded,'PingFang SC',sans-serif";
-    context.fillText(`${packageCopy.name}${selected ? COPY.fontPackageSelectedSuffix : ''}`, row.left + 72, row.top + 17);
+    context.fillText(`${packageCopy.name}${selected ? COPY.fontPackageSelectedSuffix : ''}`, row.left + 18, row.top + 17);
     context.globalAlpha = 0.62; context.font = "12px ui-rounded,'PingFang SC',sans-serif";
-    context.fillText(packageCopy.description, row.left + 72, row.top + 37);
+    context.fillText(packageCopy.description, row.left + 18, row.top + 37);
     context.globalAlpha = selected ? 0.92 : 0.72; context.fillStyle = INK; context.font = `15px ${fontStackForPackage(fontPackage.id)}`;
-    context.fillText(packageCopy.preview, row.left + 72, row.top + 59, row.width - 76);
-    context.globalAlpha = 0.62; context.font = `12px ${fontStackForPackage(fontPackage.id)}`;
-    context.fillText(fontPackage.previewEnglish, row.left + 72, row.top + 72, row.width - 76);
+    context.fillText(packageCopy.preview, row.left + 18, row.top + 59, row.width - 22);
+    if (selected) { context.globalAlpha = 0.7; context.strokeStyle = '#8B7563'; context.lineWidth = 2; context.beginPath(); context.moveTo(row.left + 18, row.top + row.height - 2); context.lineTo(row.left + row.width, row.top + row.height - 2); context.stroke(); }
+    context.globalAlpha = 1;
+  });
+}
+
+
+/** 主题选择页：一套主题 = 信封 + 信纸 + 背景成套；行样式与字体套餐页一致。 */
+function paintThemes(
+  context: CanvasRenderingContext2D,
+  width: number,
+  safe: SafeAreaInsets,
+  activeThemeId: string,
+  mileage: number,
+  letterPaper?: CanvasImageSource | null,
+): void {
+  title(context, COPY.themes, width, safe);
+  const rects = computePageItemRects(width, safe, LETTER_THEMES.length);
+  LETTER_THEMES.forEach((theme, index) => {
+    const row = rects[index];
+    const unlocked = mileage >= theme.unlockMileage;
+    const selected = theme.id === activeThemeId;
+    const previewRect = containLetter({ left: row.left, top: row.top, width: 58, height: 72 }, 0);
+    context.save(); context.globalAlpha = unlocked ? (selected ? 1 : 0.84) : 0.38;
+    paintLetterPaperAsset(context, previewRect, letterPaper);
+    context.restore();
+    context.fillStyle = INK; context.globalAlpha = unlocked ? 1 : 0.55; context.textAlign = 'left';
+    context.font = "15px ui-rounded,'PingFang SC',sans-serif";
+    context.fillText(`${theme.name}${selected ? COPY.themeSelectedSuffix : ''}`, row.left + 72, row.top + 17);
+    context.globalAlpha = 0.62; context.font = "12px ui-rounded,'PingFang SC',sans-serif";
+    context.fillText(unlocked ? COPY.themeSetSummary : `${theme.unlockMileage} ${COPY.mileageCompleted}`, row.left + 72, row.top + 37);
+    // 选中下划线与文字列对齐（+72，纸面预览图右侧），不延伸到预览图下方
     if (selected) { context.globalAlpha = 0.7; context.strokeStyle = '#8B7563'; context.lineWidth = 2; context.beginPath(); context.moveTo(row.left + 72, row.top + row.height - 2); context.lineTo(row.left + row.width, row.top + row.height - 2); context.stroke(); }
     context.globalAlpha = 1;
   });
@@ -176,7 +159,7 @@ function paintFontPackages(
 
 export interface AppOverlayPaintOptions {
   width: number; height: number; safeArea: SafeAreaInsets; page: Exclude<AppPage, 'main'>;
-  state: LetterBurningPersistedState; journalScroll: number; galleryScroll: number; selectedEntryIndex: number | null;
+  state: LetterBurningPersistedState; journalScroll: number; selectedEntryIndex: number | null;
   /** 菜单面板展开比例（0–1）：滑入/滑出动画用；缺省视为 1（全开）。 */
   menuSlideRatio?: number;
   background?: CanvasImageSource | null; backgroundComposed?: CanvasImageSource | null;
@@ -185,29 +168,13 @@ export interface AppOverlayPaintOptions {
 
 export function paintAppOverlay(context: CanvasRenderingContext2D, options: AppOverlayPaintOptions): void {
   const { width, height, safeArea, page, state } = options;
-  if (page === 'menu') { paintMenu(context, computeMenuLayout(width, height, safeArea), options.menuSlideRatio ?? 1, width); return; }
+  if (page === 'menu') { paintMenu(context, computeMenuLayout(width, height, safeArea), options.menuSlideRatio ?? 1, width, height); return; }
   paintPaperBackground(context, width, height, options.background, options.backgroundComposed);
-  if (page === 'journal') { paintJournal(context, width, height, safeArea, state.journalEntries, options.journalScroll, options.selectedEntryIndex, options.letterPaper, state.activePaperAppearanceId); return; }
-  if (page === 'gallery') { paintGallery(context, width, height, safeArea, state, options.galleryScroll, options.letterPaper); return; }
-  if (page === 'font-packages') { paintFontPackages(context, width, safeArea, state.activeFontPackageId, options.letterPaper); return; }
+  if (page === 'journal') { paintJournal(context, width, height, safeArea, state.journalEntries, options.journalScroll, options.selectedEntryIndex, options.letterPaper); return; }
+  if (page === 'themes') { paintThemes(context, width, safeArea, state.activeThemeId, state.postcardMileage, options.letterPaper); return; }
+  if (page === 'font-packages') { paintFontPackages(context, width, safeArea, state.activeFontPackageId); return; }
   if (page === 'mileage') {
     title(context, COPY.mileage, width, safeArea); context.fillStyle = INK; context.textAlign = 'center'; context.font = "64px ui-rounded,'PingFang SC',sans-serif"; context.fillText(String(state.postcardMileage), width / 2, height * 0.46); context.font = "15px ui-rounded,'PingFang SC',sans-serif"; context.globalAlpha = 0.65; context.fillText(COPY.mileageCompleted, width / 2, height * 0.54); context.globalAlpha = 1; return;
-  }
-  if (page === 'appearances') {
-    title(context, COPY.appearances, width, safeArea); const rects = computePageItemRects(width, safeArea, APPEARANCES.length);
-    APPEARANCES.forEach((appearance, index) => {
-      const rect = rects[index]; const unlocked = state.unlockedAppearanceIds.includes(appearance.id);
-      const active = state.activeEnvelopeAppearanceId === appearance.id || state.activePaperAppearanceId === appearance.id;
-      const previewRect = { left: rect.left, top: rect.top + 2, width: 42, height: 42 };
-      context.save(); context.globalAlpha = unlocked ? 1 : 0.38;
-      if (appearance.kind === 'envelope') paintEnvelopeAssetPreview(context, previewRect, options.openEnvelope, appearance.id);
-      else paintLetterPaperAsset(context, containLetter(previewRect, 0), options.letterPaper, appearance.id);
-      context.restore();
-      context.fillStyle = INK; context.globalAlpha = unlocked ? 1 : 0.55; context.font = "15px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'left';
-      context.fillText(formatAppearanceName(appearance.name, active), rect.left + 54, rect.top + 17);
-      context.font = "12px ui-rounded,'PingFang SC',sans-serif";
-      context.fillText(unlocked ? (appearance.kind === 'envelope' ? COPY.envelopeMaterials : COPY.postcardTextures) : formatAppearanceUnlockMileage(appearance.unlockMileage), rect.left + 54, rect.top + 37); context.globalAlpha = 1;
-    }); return;
   }
   if (page === 'achievements') {
     title(context, COPY.achievements, width, safeArea); const rects = computePageItemRects(width, safeArea, LETTER_ACHIEVEMENTS.length);

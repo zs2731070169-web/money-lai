@@ -6,6 +6,10 @@ import {
   type AdaptiveBackgroundPlan, type BackgroundCompositionSurface,
 } from '../../src/core/render/background-composition';
 import { FakePlatform } from '../helpers/fake-platform';
+import { computeMenuLayout } from '../../src/core/render/menu-layout';
+import { computeLetterSceneLayout } from '../../src/core/render/letter-layout';
+import { LETTER_THEMES } from '../../src/core/render/letter-theme';
+import { computePageItemRects } from '../../src/core/render/app-overlay-painter';
 
 const NEAR = 1e-9;
 
@@ -175,7 +179,7 @@ describe('背景合成接线（Game 集成）', () => {
     platform.bundledImage = { id: 'background' } as unknown as CanvasImageSource;
     const game = new Game({
       platformAdapter: platform,
-      letterSceneAssetUrls: { background: 'bg.png', closedEnvelope: 'c.png', openEnvelope: 'o.png', letterPaper: 'p.png' },
+      letterThemeAssetUrls: { topic1: { background: 'bg.png', closedEnvelope: 'c.png', openEnvelope: 'o.png', letterPaper: 'p.png' } },
     });
     return { platform, game };
   }
@@ -217,5 +221,27 @@ describe('背景合成接线（Game 集成）', () => {
     platform.viewport.height = 844;
     platform.tick(16);
     expect(platform.offscreenCanvasCalls).toBe(6);
+  });
+
+  it('主题切换整套重载后强制重合成（含重复点选当前主题不重载）', async () => {
+    const { platform, game } = createGameWithBackground();
+    await game.start();
+    platform.tick(16);
+    const initialAllocations = platform.offscreenCanvasCalls;
+    expect(initialAllocations).toBe(5);
+    // 进入主题页并点选另一套主题（当前只有 topic1，用菜单路由模拟激活路径）
+    const scene = computeLetterSceneLayout(platform.viewport.width, platform.viewport.height, platform.safe);
+    platform.touch('start', scene.menuRect.left + 24, scene.menuRect.top + 24); platform.touch('end', scene.menuRect.left + 24, scene.menuRect.top + 24);
+    const menu = computeMenuLayout(platform.viewport.width, platform.viewport.height, platform.safe);
+    const themeRow = menu.rows.find((row) => row.action === 'themes');
+    if (!themeRow) throw new Error('菜单缺少主题入口');
+    platform.touch('start', themeRow.rect.left + 20, themeRow.rect.top + themeRow.rect.height / 2); platform.touch('end', themeRow.rect.left + 20, themeRow.rect.top + themeRow.rect.height / 2);
+    // 同主题重复点选：状态幂等，不触发资产重载与重合成
+    const rects = computePageItemRects(platform.viewport.width, platform.safe, LETTER_THEMES.length);
+    const pickX = rects[0].left + 20; const pickY = rects[0].top + rects[0].height / 2;
+    platform.touch('start', pickX, pickY); platform.touch('end', pickX, pickY);
+    await Promise.resolve();
+    platform.tick(16);
+    expect(platform.offscreenCanvasCalls).toBe(initialAllocations);
   });
 });

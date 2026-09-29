@@ -10,12 +10,15 @@ const platformAdapter = createWebPlatformAdapter();
 const game = new Game({
   platformAdapter,
   privacyPolicyUrl: import.meta.env.VITE_PRIVACY_POLICY_URL?.trim() || null,
-  letterSceneAssetUrls: {
-    background: new URL('../assets/envelop/topic1/background.png', import.meta.url).href,
-    closedEnvelope: new URL('../assets/envelop/topic1/closed_envelope.png', import.meta.url).href,
-    openEnvelopeBack: new URL('../assets/envelop/topic1/open_envelope_back.png', import.meta.url).href,
-    openEnvelopeFront: new URL('../assets/envelop/topic1/open_envelope_front.png', import.meta.url).href,
-    letterPaper: new URL('../assets/envelop/topic1/letter_paper.png', import.meta.url).href,
+  // 信的主题成套资产：新增主题时在此登记 assets/envelop/<id>/ 目录
+  letterThemeAssetUrls: {
+    topic1: {
+      background: new URL('../assets/envelop/topic1/background.png', import.meta.url).href,
+      closedEnvelope: new URL('../assets/envelop/topic1/closed_envelope.png', import.meta.url).href,
+      openEnvelopeBack: new URL('../assets/envelop/topic1/open_envelope_back.png', import.meta.url).href,
+      openEnvelopeFront: new URL('../assets/envelop/topic1/open_envelope_front.png', import.meta.url).href,
+      letterPaper: new URL('../assets/envelop/topic1/letter_paper.png', import.meta.url).href,
+    },
   },
   envelopeDrawOutAudioUrl: new URL('../assets/audio/envelop_draw_out.wav', import.meta.url).href,
 });

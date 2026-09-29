@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { Game } from '../../src/core/game';
 import { LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, createEmptyLetterBurningState, serializeLetterBurningState, settleCompletedPostcard } from '../../src/core/journal/journal-state';
 import { computeLetterSceneLayout } from '../../src/core/render/letter-layout';
-import { computeFontPackageItemRects, computeGalleryLayout, journalClearRect } from '../../src/core/render/app-overlay-painter';
+import { computeFontPackageItemRects, computePageItemRects, journalClearRect } from '../../src/core/render/app-overlay-painter';
 import { computeMenuLayout } from '../../src/core/render/menu-layout';
 import { FONT_PACKAGES } from '../../src/core/render/letter-font';
+import { LETTER_THEMES } from '../../src/core/render/letter-theme';
 import { FakePlatform } from '../helpers/fake-platform';
 
 function click(platform: FakePlatform, x: number, y: number) { platform.touch('start', x, y); platform.touch('end', x, y); }
@@ -123,13 +124,27 @@ describe('燃信菜单与页面', () => {
     expect(game.getTestSnapshot().phase).toBe('burn');
   });
 
-  it('图鉴使用单张真实信纸素材居中呈现，不恢复旧 24 格代码图案', () => {
-    const safe = { top: 20, bottom: 0, left: 0, right: 0 };
-    const initial = computeGalleryLayout(375, 667, safe, 0);
-    expect(initial.maximumScroll).toBe(0);
-    expect(initial.cells).toHaveLength(1);
-    expect(initial.cells[0].patternIndex).toBe(0);
-    expect(initial.cells[0].rect.left + initial.cells[0].rect.width / 2).toBeCloseTo(375 / 2);
+  it('主题页成套选择：唯一主题默认启用，菜单不再提供图鉴与双槽外观', () => {
+    expect(LETTER_THEMES).toHaveLength(1);
+    expect(LETTER_THEMES[0]).toMatchObject({ id: 'topic1', unlockMileage: 0 });
+    const actions = computeMenuLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 }).rows.map((row) => row.action);
+    expect(actions).toEqual(['mileage', 'themes', 'font-packages', 'achievements', 'journal', 'privacy']);
+  });
+
+
+  it('主题页成套启用并持久化，点按未解锁主题不生效', async () => {
+    const { platform, game, menu } = await preparedGame();
+    const themeRow = menu.rows.find((row) => row.action === 'themes');
+    expect(themeRow).toBeDefined();
+    if (!themeRow) return;
+    click(platform, themeRow.rect.left + 20, themeRow.rect.top + themeRow.rect.height / 2);
+    expect(game.getTestSnapshot().page).toBe('themes');
+    const rects = computePageItemRects(platform.viewport.width, platform.safe, LETTER_THEMES.length);
+    click(platform, rects[0].left + 20, rects[0].top + rects[0].height / 2);
+    expect(game.getTestSnapshot().persisted.activeThemeId).toBe('topic1');
+    expect(platform.storage.get(LETTER_BURNING_STORAGE_KEY)).toContain('topic1');
+    click(platform, platform.safe.left + 30, platform.safe.top + 34);
+    expect(game.getTestSnapshot().page).toBe('menu');
   });
 
   it('字体套餐页可切换并通过新状态键恢复', async () => {
@@ -152,9 +167,15 @@ describe('燃信菜单与页面', () => {
     expect(game.getTestSnapshot().page).toBe('menu');
     platform.touch('start', 200, 700); platform.touch('move', 200, 400); platform.touch('end', 20, 400);
     expect(game.getTestSnapshot().phase).toBe('idle');
-    // 顺序：里程、图鉴、外观、字体套餐（第 4 项）、成就、手帐、隐私政策
-    expect(menu.rows.map((row) => row.action)).toEqual(['mileage', 'gallery', 'appearances', 'font-packages', 'achievements', 'journal', 'privacy']);
-    for (const page of ['mileage', 'gallery', 'appearances', 'font-packages', 'achievements'] as const) {
+    // 面板外区域的触摸现在会关闭菜单：等待滑出动画完成后重新打开再遍历行
+    for (let index = 0; index < 3; index += 1) platform.tick(100);
+    expect(game.getTestSnapshot().page).toBe('main');
+    const scene = computeLetterSceneLayout(platform.viewport.width, platform.viewport.height, platform.safe);
+    click(platform, scene.menuRect.left + 24, scene.menuRect.top + 24);
+    expect(game.getTestSnapshot().page).toBe('menu');
+    // 顺序：里程、信的主题、字体套餐（第 3 项）、成就、手帐、隐私政策
+    expect(menu.rows.map((row) => row.action)).toEqual(['mileage', 'themes', 'font-packages', 'achievements', 'journal', 'privacy']);
+    for (const page of ['mileage', 'themes', 'font-packages', 'achievements'] as const) {
       const row = menu.rows.find((item) => item.action === page); if (!row) continue;
       click(platform, row.rect.left + 20, row.rect.top + row.rect.height / 2); expect(game.getTestSnapshot().page).toBe(page);
       click(platform, platform.safe.left + 30, platform.safe.top + 34); expect(game.getTestSnapshot().page).toBe('menu');
@@ -208,6 +229,14 @@ describe('燃信菜单与页面', () => {
     const swipeY = menu.panelRect.top + 160;
     const swipeX = menu.panelRect.left + 60;
     platform.touch('start', swipeX, swipeY); platform.touch('move', swipeX + 35, swipeY + 4); platform.touch('end', swipeX + 70, swipeY + 6);
+    expect(game.getTestSnapshot().page).toBe('menu');
+    for (let index = 0; index < 3; index += 1) platform.tick(100);
+    expect(game.getTestSnapshot().page).toBe('main');
+
+    // 点按面板外的遮罩区域同样关闭；面板内的普通点按不误关
+    click(platform, scene.menuRect.left + 24, scene.menuRect.top + 24);
+    expect(game.getTestSnapshot().page).toBe('menu');
+    click(platform, menu.panelRect.left - 60, menu.panelRect.top + 160);
     expect(game.getTestSnapshot().page).toBe('menu');
     for (let index = 0; index < 3; index += 1) platform.tick(100);
     expect(game.getTestSnapshot().page).toBe('main');

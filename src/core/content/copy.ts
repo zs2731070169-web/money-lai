@@ -11,12 +11,12 @@ export const COPY = {
   privacyTitle: '只留在这里',
   privacySummary: '写下的内容与手帐只保存在这台设备上。匿名计数只发送一次无内容的增量。',
   agree: '同意并进入',
-  privacyPolicy: '隐私政策',
+  privacyPolicy: '隐私',
   localOnly: '这些东西只在这台设备上。',
-  mileage: '明信片里程',
-  gallery: '明信片图鉴',
-  appearances: '信封与纸纹',
-  fontPackages: '字体套餐',
+  mileage: '里程',
+  themes: '主题',
+  themeSetSummary: '信封 · 信纸 · 背景',
+  fontPackages: '字体',
   fontPackageSelectedSuffix: ' · 已选',
   achievements: '成就',
   journal: '手帐',
@@ -26,11 +26,8 @@ export const COPY = {
   confirm: '确认',
   back: '返回',
   backLabel: '‹ 返回',
-  envelopeMaterials: '信封材质',
-  postcardTextures: '明信片纸纹',
   mileageCompleted: '本机完成的明信片',
-  appearanceActiveSuffix: ' · 已启用',
-  appearanceAvailableSuffix: '张可用',
+  themeSelectedSuffix: ' · 已选',
   unavailable: '暂不可用',
   saveFailed: '记录未能保存',
   now: '此刻',
@@ -43,15 +40,8 @@ export const FONT_PACKAGE_COPY = {
   'romantic-literary': { name: '浪漫文艺风', description: 'Cormorant Garamond 与霞鹜文楷中英文混排', preview: '在花影与纸边之间，留一句想念' },
 } as const;
 
-export const APPEARANCE_NAMES = {
-  'envelope-kraft': '原色棉纸',
-  'envelope-rose': '旧玫瑰',
-  'envelope-moss': '苔灰',
-  'envelope-night': '暮蓝',
-  'paper-plain': '素纸',
-  'paper-fiber': '细纤',
-  'paper-sand': '暖砂',
-  'paper-mist': '雾白',
+export const THEME_NAMES = {
+  topic1: '铃兰',
 } as const;
 
 export const POSTCARD_NAMES = {
@@ -75,12 +65,4 @@ export const FLOATING_COPY = [
 
 export function formatBurnCount(count: number): string {
   return `${count} ${COPY.statSuffix}`;
-}
-
-export function formatAppearanceName(name: string, active: boolean): string {
-  return active ? `${name}${COPY.appearanceActiveSuffix}` : name;
-}
-
-export function formatAppearanceUnlockMileage(mileage: number): string {
-  return `${mileage} ${COPY.appearanceAvailableSuffix}`;
 }

@@ -113,7 +113,7 @@ describe('信封到燃烧的端到端链路', () => {
     beforeThird = settleCompletedPostcard(beforeThird, { id: 'a', createdAtIso: '2026-09-26T00:00:00.000Z', patternId: 'postcard-01', text: '一' });
     beforeThird = settleCompletedPostcard(beforeThird, { id: 'b', createdAtIso: '2026-09-27T00:00:00.000Z', patternId: 'postcard-02', text: '二' });
     const odd = await readyGame('', beforeThird); odd.platform.countResult = 33; await burnCurrentCard(odd.platform, odd.layout);
-    expect(odd.game.getTestSnapshot().persisted.unlockedAppearanceIds).toEqual(expect.arrayContaining(['envelope-rose', 'paper-fiber']));
+    expect(odd.game.getTestSnapshot().persisted.activeThemeId).toBe('topic1');
     expect(odd.game.getTestSnapshot().persisted.achievementIds).toContain('first-blank');
     for (let index = 0; index < 26; index += 1) odd.platform.tick(100);
     expect(odd.game.getTestSnapshot().phase).toBe('stat');
@@ -140,13 +140,13 @@ describe('信封到燃烧的端到端链路', () => {
     platform.paintedTexts.length = 0; platform.tick(100);
     expect(platform.paintedTexts.join('')).toBe('');
 
-    // 取消且未输入文字：信纸恢复引导语
+    // 取消且未输入文字：信纸保持留白（引导语只在放大编辑的输入层出现）
     platform.settleDraft(null);
     await new Promise((resolve) => setTimeout(resolve, 0));
     for (let index = 0; index < 4; index += 1) platform.tick(100);
     expect(game.getTestSnapshot().phase).toBe('back');
     platform.paintedTexts.length = 0; platform.tick(100);
-    expect(platform.paintedTexts.join('')).toContain('想说的是……');
+    expect(platform.paintedTexts.join('')).toBe('');
 
     // 确认一句话回到背面后再次点开编辑：信纸上的旧文字同样不与输入面板叠印
     const cardX = layout.cardRect.left + layout.cardRect.width / 2; const cardY = layout.cardRect.top + layout.cardRect.height / 2;

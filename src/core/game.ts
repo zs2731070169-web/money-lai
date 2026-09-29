@@ -3,7 +3,7 @@ import { BACK_PROMPTS, COPY } from './content/copy';
 import { shouldDisplayBurnCount } from './count/burn-count';
 import { computeJournalLayout, maximumJournalScroll } from './journal/journal-layout';
 import {
-  LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, activateAppearance, activateFontPackage,
+  LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, activateFontPackage, activateLetterTheme,
   clearJournal, createEmptyLetterBurningState, parseLetterBurningState,
   serializeLetterBurningState, settleCompletedPostcard, type LetterBurningPersistedState,
 } from './journal/journal-state';
@@ -13,10 +13,10 @@ import {
   type BurningEffect, type BurningState,
 } from './letter/burning-state';
 import { DEFAULT_POSTCARD_ID, chooseNextPostcardId, postcardById } from './letter/postcard-catalog';
-import { APPEARANCES } from './meta/postcard-progress';
 import { FONT_PACKAGES, fontStackForPackage } from './render/letter-font';
+import { LETTER_THEMES, letterThemeById } from './render/letter-theme';
 import type { NormalizedTouchPoint, PlatformAdapter, PrimaryCanvas, TouchPhase } from './platform';
-import { computeFontPackageItemRects, computeGalleryLayout, computePageItemRects, hitJournalCell, journalClearRect, pageBackRect, paintAppOverlay } from './render/app-overlay-painter';
+import { computeFontPackageItemRects, computePageItemRects, hitJournalCell, journalClearRect, pageBackRect, paintAppOverlay } from './render/app-overlay-painter';
 import { createBurnGeometryBuffer } from './render/burn-geometry';
 import { paintAdaptiveBackground, planAdaptiveBackground } from './render/background-composition';
 import { computeLetterSceneLayout, containsPoint } from './render/letter-layout';
@@ -35,14 +35,15 @@ const BACKGROUND_COMPOSITION_SETTLE_MS = 180;
 export interface GameOptions {
   platformAdapter: PlatformAdapter;
   privacyPolicyUrl?: string | null;
-  letterSceneAssetUrls?: {
+  /** 主题 id → 该主题整套资产 URL（assets/envelop/<id>/）。 */
+  letterThemeAssetUrls?: Record<string, {
     background: string;
     closedEnvelope: string;
     openEnvelope?: string;
     openEnvelopeBack?: string;
     openEnvelopeFront?: string;
     letterPaper: string;
-  };
+  }>;
   /** 随包「信纸抽出」音效素材；缺失时抽信手势静默。 */
   envelopeDrawOutAudioUrl?: string | null;
 }
@@ -67,7 +68,7 @@ export function shouldTriggerEnvelopeDrawOut(
 export class Game {
   private readonly platform: PlatformAdapter;
   private readonly privacyPolicyUrl: string | null;
-  private readonly letterSceneAssetUrls: GameOptions['letterSceneAssetUrls'];
+  private readonly letterThemeAssetUrls: GameOptions['letterThemeAssetUrls'];
   private readonly audio: AudioEngine;
   private letterSceneAssets: LetterSceneAssets = {};
   /** 未合成的原始背景位图；竖屏下按视口离屏合成后替换绘制资产。 */
@@ -90,7 +91,6 @@ export class Game {
   private touchStart: TouchStart | null = null;
   private lastFrameTimestamp: number | null = null;
   private journalScroll = 0;
-  private galleryScroll = 0;
   private selectedJournalEntry: number | null = null;
   private menuGlowStartedAt: number | null = null;
   /** 菜单面板滑入/滑出动画起点；null 表示不在动画中（面板全开）。 */
@@ -140,22 +140,30 @@ export class Game {
   constructor(options: GameOptions) {
     this.platform = options.platformAdapter;
     this.privacyPolicyUrl = options.privacyPolicyUrl ?? null;
-    this.letterSceneAssetUrls = options.letterSceneAssetUrls;
+    this.letterThemeAssetUrls = options.letterThemeAssetUrls;
     this.envelopeDrawOutAudioUrl = options.envelopeDrawOutAudioUrl ?? null;
     this.audio = new AudioEngine({ createAudioContext: () => this.platform.createAudioContext() });
   }
 
   private async loadLetterSceneAssets(): Promise<void> {
-    if (!this.letterSceneAssetUrls) return;
-    const openEnvelopeBackUrl = this.letterSceneAssetUrls.openEnvelopeBack ?? this.letterSceneAssetUrls.openEnvelope;
-    const openEnvelopeFrontUrl = this.letterSceneAssetUrls.openEnvelopeFront ?? this.letterSceneAssetUrls.openEnvelope;
+    const themeUrls = this.letterThemeAssetUrls?.[letterThemeById(this.persisted.activeThemeId).id];
+    if (!themeUrls) return;
+    const openEnvelopeBackUrl = themeUrls.openEnvelopeBack ?? themeUrls.openEnvelope;
+    const openEnvelopeFrontUrl = themeUrls.openEnvelopeFront ?? themeUrls.openEnvelope;
     const [background, closedEnvelope, openEnvelopeBack, openEnvelopeFront, letterPaper] = await Promise.all([
-      this.platform.loadBundledImage(this.letterSceneAssetUrls.background),
-      this.platform.loadBundledImage(this.letterSceneAssetUrls.closedEnvelope),
+      this.platform.loadBundledImage(themeUrls.background),
+      this.platform.loadBundledImage(themeUrls.closedEnvelope),
       openEnvelopeBackUrl ? this.platform.loadBundledImage(openEnvelopeBackUrl) : Promise.resolve(null),
       openEnvelopeFrontUrl ? this.platform.loadBundledImage(openEnvelopeFrontUrl) : Promise.resolve(null),
-      this.platform.loadBundledImage(this.letterSceneAssetUrls.letterPaper),
+      this.platform.loadBundledImage(themeUrls.letterPaper),
     ]);
+    // 主题切换后旧合成面失效：连同 composedBackground 一起清空，
+    // 否则 refreshBackgroundComposition 会按旧缓存早退，永远不把新合成面写回 letterSceneAssets，
+    // 画面退回 cover 兜底并在竖屏裁掉四角装饰
+    this.composedBackground = null;
+    this.backgroundViewportWidth = 0;
+    this.backgroundViewportHeight = 0;
+    this.backgroundCompositionFailure = null;
     this.letterSceneAssets = {
       background, closedEnvelope, openEnvelopeBack, openEnvelopeFront,
       openEnvelope: openEnvelopeFront ?? openEnvelopeBack,
@@ -284,15 +292,10 @@ export class Game {
     const viewport = this.platform.getLogicalViewportSize(); const safe = this.platform.getSafeAreaInsets();
     if (phase === 'start') { this.touchStart = { x: point.positionX, y: point.positionY, atMs: now, lastY: point.positionY }; return; }
     const start = this.touchStart; if (!start) return;
-    if (phase === 'move' && ((this.page === 'journal' && this.selectedJournalEntry === null) || this.page === 'gallery')) {
+    if (phase === 'move' && this.page === 'journal' && this.selectedJournalEntry === null) {
       const delta = start.lastY - point.positionY; start.lastY = point.positionY;
-      if (this.page === 'journal') {
-        const currentLayout = computeJournalLayout(viewport.width, viewport.height, safe, this.persisted.journalEntries.length, this.journalScroll);
-        this.journalScroll = Math.max(0, Math.min(maximumJournalScroll(currentLayout, viewport.height, safe.bottom), this.journalScroll + delta));
-      } else {
-        const maximumScroll = computeGalleryLayout(viewport.width, viewport.height, safe, this.galleryScroll).maximumScroll;
-        this.galleryScroll = Math.max(0, Math.min(maximumScroll, this.galleryScroll + delta));
-      }
+      const currentLayout = computeJournalLayout(viewport.width, viewport.height, safe, this.persisted.journalEntries.length, this.journalScroll);
+      this.journalScroll = Math.max(0, Math.min(maximumJournalScroll(currentLayout, viewport.height, safe.bottom), this.journalScroll + delta));
       return;
     }
     if (phase !== 'end') return;
@@ -306,6 +309,11 @@ export class Game {
       const swipeDistanceY = point.positionY - start.y;
       const swipedRight = swipeDistanceX >= 56 && Math.abs(swipeDistanceY) <= 48;
       if (swipedRight || containsPoint(layout.closeRect, point.positionX, point.positionY)) {
+        this.beginMenuPanelClose();
+        return;
+      }
+      // 起点在面板外的点按（遮罩区域）同样关闭菜单；从面板内拖出但未达滑动阈值的抬手不触发
+      if (!containsPoint(layout.panelRect, start.x, start.y)) {
         this.beginMenuPanelClose();
         return;
       }
@@ -323,9 +331,16 @@ export class Game {
       if (containsPoint(journalClearRect(viewport.width, viewport.height, safe), point.positionX, point.positionY)) { void this.requestClearJournal(); return; }
       this.selectedJournalEntry = hitJournalCell(viewport.width, viewport.height, safe, this.persisted.journalEntries.length, this.journalScroll, point.positionX, point.positionY); return;
     }
-    if (this.page === 'appearances') {
-      const rects = computePageItemRects(viewport.width, safe, APPEARANCES.length); const index = rects.findIndex((rect) => containsPoint(rect, point.positionX, point.positionY));
-      if (index >= 0) { const next = activateAppearance(this.persisted, APPEARANCES[index].id); if (next !== this.persisted) { this.persisted = next; void this.persistCurrentState(); } }
+    if (this.page === 'themes') {
+      const rects = computePageItemRects(viewport.width, safe, LETTER_THEMES.length); const index = rects.findIndex((rect) => containsPoint(rect, point.positionX, point.positionY));
+      if (index >= 0) {
+        const next = activateLetterTheme(this.persisted, LETTER_THEMES[index].id, this.persisted.postcardMileage);
+        if (next !== this.persisted) {
+          this.persisted = next;
+          void this.persistCurrentState();
+          void this.loadLetterSceneAssets();
+        }
+      }
     }
     if (this.page === 'font-packages') {
       const rects = computeFontPackageItemRects(viewport.width, safe, FONT_PACKAGES.length); const index = rects.findIndex((rect) => containsPoint(rect, point.positionX, point.positionY));
@@ -454,8 +469,8 @@ export class Game {
     if (glowProgress >= 1) this.menuGlowStartedAt = null;
     // 输入面板激活期间书写内容由输入层独占：信纸不再画引导语与旧文字，避免透明面板下叠印
     const paperWritingHidden = this.inputActive;
-    paintLetterScene(context, { width: viewport.width, height: viewport.height, layout, state: paperWritingHidden ? { ...this.burning, text: '' } : this.burning, prompt: paperWritingHidden ? '' : this.prompt, envelopeAppearanceId: this.persisted.activeEnvelopeAppearanceId, paperAppearanceId: this.persisted.activePaperAppearanceId, fontPackageId: this.persisted.activeFontPackageId, burnGeometry: this.burnGeometry, burnSeed: postcardById(this.patternId).burnSeed + this.persisted.postcardMileage, menuGlowProgress: glowProgress, reducedMotion: this.reducedMotion, assets: this.letterSceneAssets });
-    if (this.page !== 'main') paintAppOverlay(context, { width: viewport.width, height: viewport.height, safeArea: safe, page: this.page, state: this.persisted, journalScroll: this.journalScroll, galleryScroll: this.galleryScroll, selectedEntryIndex: this.selectedJournalEntry, menuSlideRatio: this.menuPanelSlideRatio(), background: this.letterSceneAssets.background, backgroundComposed: this.letterSceneAssets.backgroundComposed, openEnvelope: this.letterSceneAssets.openEnvelope, letterPaper: this.letterSceneAssets.letterPaper });
+    paintLetterScene(context, { width: viewport.width, height: viewport.height, layout, state: paperWritingHidden ? { ...this.burning, text: '' } : this.burning, fontPackageId: this.persisted.activeFontPackageId, burnGeometry: this.burnGeometry, burnSeed: postcardById(this.patternId).burnSeed + this.persisted.postcardMileage, menuGlowProgress: glowProgress, reducedMotion: this.reducedMotion, assets: this.letterSceneAssets });
+    if (this.page !== 'main') paintAppOverlay(context, { width: viewport.width, height: viewport.height, safeArea: safe, page: this.page, state: this.persisted, journalScroll: this.journalScroll, selectedEntryIndex: this.selectedJournalEntry, menuSlideRatio: this.menuPanelSlideRatio(), background: this.letterSceneAssets.background, backgroundComposed: this.letterSceneAssets.backgroundComposed, openEnvelope: this.letterSceneAssets.openEnvelope, letterPaper: this.letterSceneAssets.letterPaper });
     if (this.transitionElapsedMs !== null) { const durationMs = this.reducedMotion ? REDUCED_TRANSITION_DURATION_MS : TRANSITION_DURATION_MS; const ratio = Math.min(1, this.transitionElapsedMs / durationMs); context.fillStyle = `rgba(78,61,49,${0.38 * Math.sin(ratio * Math.PI)})`; context.fillRect(0, 0, viewport.width, viewport.height); }
     if (this.clearJournalElapsedMs !== null) paintPageBurn(context, viewport.width, viewport.height, Math.min(1, this.clearJournalElapsedMs / BURN_DURATION_MS), this.clearBurnGeometry, 104729);
     if (this.notice && this.notice.until > this.platform.nowMilliseconds()) { context.save(); context.fillStyle = 'rgba(73,88,83,.82)'; context.font = "13px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center'; context.fillText(this.notice.text, viewport.width / 2, viewport.height - safe.bottom - 34); context.restore(); } else if (this.notice) this.notice = null;

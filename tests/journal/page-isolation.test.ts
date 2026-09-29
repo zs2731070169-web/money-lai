@@ -7,21 +7,21 @@ describe('手帐页面数据隔离', () => {
     const texts: string[] = []; const gradient = { addColorStop() {} };
     const context = new Proxy({}, { get(_target, property) { if (property === 'fillText') return (text: string) => texts.push(text); if (property === 'createLinearGradient' || property === 'createRadialGradient') return () => gradient; if (property === 'measureText') return () => ({ width: 20 }); return () => undefined; }, set: () => true }) as unknown as CanvasRenderingContext2D;
     const state = settleCompletedPostcard(createEmptyLetterBurningState(), { id: 'a', createdAtIso: '2026-09-28T00:00:00.000Z', patternId: 'postcard-01', text: '隐藏原文' });
-    paintAppOverlay(context, { width: 402, height: 874, safeArea: { top: 62, bottom: 34, left: 0, right: 0 }, page: 'journal', state, journalScroll: 0, galleryScroll: 0, selectedEntryIndex: null });
+    paintAppOverlay(context, { width: 402, height: 874, safeArea: { top: 62, bottom: 34, left: 0, right: 0 }, page: 'journal', state, journalScroll: 0, selectedEntryIndex: null });
     expect(texts).toContain('这些东西只在这台设备上。'); expect(texts).toContain('2026-09-28'); expect(texts).not.toContain('隐藏原文'); expect(texts).not.toContain(String(state.postcardMileage));
   });
 
   it('一级菜单只绘制七个功能行，不再绘制医疗声明、12355 与烧掉入口', () => {
     const texts: string[] = []; const gradient = { addColorStop() {} };
     const context = new Proxy({}, { get(_target, property) { if (property === 'fillText') return (text: string) => texts.push(text); if (property === 'createLinearGradient' || property === 'createRadialGradient') return () => gradient; if (property === 'measureText') return () => ({ width: 20 }); return () => undefined; }, set: () => true }) as unknown as CanvasRenderingContext2D;
-    paintAppOverlay(context, { width: 402, height: 874, safeArea: { top: 62, bottom: 34, left: 0, right: 0 }, page: 'menu', state: createEmptyLetterBurningState(), journalScroll: 0, galleryScroll: 0, selectedEntryIndex: null });
-    expect(texts).toEqual(['×', '明信片里程', '明信片图鉴', '信封与纸纹', '字体套餐', '成就', '手帐', '隐私政策']);
+    paintAppOverlay(context, { width: 402, height: 874, safeArea: { top: 62, bottom: 34, left: 0, right: 0 }, page: 'menu', state: createEmptyLetterBurningState(), journalScroll: 0, selectedEntryIndex: null });
+    expect(texts).toEqual(['×', '里程', '主题', '字体', '成就', '手帐', '隐私']);
   });
 
   it('手帐页页脚绘制烧掉整本手帐入口', () => {
     const texts: string[] = []; const gradient = { addColorStop() {} };
     const context = new Proxy({}, { get(_target, property) { if (property === 'fillText') return (text: string) => texts.push(text); if (property === 'createLinearGradient' || property === 'createRadialGradient') return () => gradient; if (property === 'measureText') return () => ({ width: 20 }); return () => undefined; }, set: () => true }) as unknown as CanvasRenderingContext2D;
-    paintAppOverlay(context, { width: 402, height: 874, safeArea: { top: 62, bottom: 34, left: 0, right: 0 }, page: 'journal', state: createEmptyLetterBurningState(), journalScroll: 0, galleryScroll: 0, selectedEntryIndex: null });
+    paintAppOverlay(context, { width: 402, height: 874, safeArea: { top: 62, bottom: 34, left: 0, right: 0 }, page: 'journal', state: createEmptyLetterBurningState(), journalScroll: 0, selectedEntryIndex: null });
     expect(texts).toContain('烧掉整本手帐'); expect(texts).toContain('这些东西只在这台设备上。');
   });
 });

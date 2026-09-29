@@ -16,7 +16,6 @@ export interface LetterFontPackage {
   copyKey: FontPackageId;
   fontStack: string;
   assets: readonly LetterFontAsset[];
-  previewEnglish: string;
 }
 
 export const DEFAULT_FONT_PACKAGE_ID: FontPackageId = 'warm-handwriting';
@@ -30,7 +29,6 @@ export const FONT_PACKAGES: readonly LetterFontPackage[] = [
       { family: 'Letter LXGW WenKai', fileName: 'LXGWWenKaiLite-Regular.ttf', format: 'truetype' },
       { family: 'Letter Yozai', fileName: 'Yozai-Regular.ttf', format: 'truetype' },
     ],
-    previewEnglish: 'with all my heart',
   },
   {
     id: 'classical-elegant',
@@ -39,7 +37,6 @@ export const FONT_PACKAGES: readonly LetterFontPackage[] = [
     assets: [
       { family: 'Letter Noto Serif SC', fileName: 'NotoSerifSC-Regular.ttf', format: 'truetype' },
     ],
-    previewEnglish: 'a quiet letter, a long echo',
   },
   {
     id: 'romantic-literary',
@@ -49,7 +46,6 @@ export const FONT_PACKAGES: readonly LetterFontPackage[] = [
       { family: 'Letter Cormorant Garamond', fileName: 'CormorantGaramond-Regular.ttf', format: 'truetype' },
       { family: 'Letter LXGW WenKai', fileName: 'LXGWWenKaiLite-Regular.ttf', format: 'truetype' },
     ],
-    previewEnglish: 'softly, and always',
   },
 ] as const;
 

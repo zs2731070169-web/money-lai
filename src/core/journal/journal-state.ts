@@ -1,5 +1,6 @@
 import { DEFAULT_POSTCARD_ID, normalizePostcardId } from '../letter/postcard-catalog';
-import { APPEARANCES, evaluateAchievementIds, unlockedAppearanceIds } from '../meta/postcard-progress';
+import { evaluateAchievementIds } from '../meta/postcard-progress';
+import { DEFAULT_LETTER_THEME_ID, letterThemeById } from '../render/letter-theme';
 import { DEFAULT_FONT_PACKAGE_ID, fontPackageById, type FontPackageId } from '../render/letter-font';
 
 export const LETTER_BURNING_STORAGE_KEY = 'letter-burning/state/v1';
@@ -18,9 +19,8 @@ export interface LetterBurningPersistedState {
   journalEntries: JournalEntry[];
   postcardMileage: number;
   collectedPatternIds: string[];
-  unlockedAppearanceIds: string[];
-  activeEnvelopeAppearanceId: string;
-  activePaperAppearanceId: string;
+  /** 当前启用的信主题（信封+信纸+背景成套）；旧存档无此字段时回落默认主题。 */
+  activeThemeId: string;
   activeFontPackageId: FontPackageId;
   achievementIds: string[];
   statCadenceCount: number;
@@ -33,9 +33,7 @@ export function createEmptyLetterBurningState(): LetterBurningPersistedState {
     journalEntries: [],
     postcardMileage: 0,
     collectedPatternIds: [],
-    unlockedAppearanceIds: ['envelope-kraft', 'paper-plain'],
-    activeEnvelopeAppearanceId: 'envelope-kraft',
-    activePaperAppearanceId: 'paper-plain',
+    activeThemeId: DEFAULT_LETTER_THEME_ID,
     activeFontPackageId: DEFAULT_FONT_PACKAGE_ID,
     achievementIds: [],
     statCadenceCount: 0,
@@ -52,7 +50,6 @@ export function parseLetterBurningState(serialized: string | null): LetterBurnin
   try {
     const value = JSON.parse(serialized) as Record<string, unknown>;
     if (value.version !== 1) return createEmptyLetterBurningState();
-    const appearanceIds = new Set(APPEARANCES.map((appearance) => appearance.id));
     const entries = Array.isArray(value.journalEntries)
       ? value.journalEntries.flatMap((entry): JournalEntry[] => {
           if (typeof entry !== 'object' || entry === null) return [];
@@ -66,11 +63,7 @@ export function parseLetterBurningState(serialized: string | null): LetterBurnin
       : [];
     const mileage = Number.isSafeInteger(value.postcardMileage) && Number(value.postcardMileage) >= 0
       ? Number(value.postcardMileage) : 0;
-    const unlocked = stringArray(value.unlockedAppearanceIds, appearanceIds);
-    const envelope = typeof value.activeEnvelopeAppearanceId === 'string' && unlocked.includes(value.activeEnvelopeAppearanceId)
-      ? value.activeEnvelopeAppearanceId : 'envelope-kraft';
-    const paper = typeof value.activePaperAppearanceId === 'string' && unlocked.includes(value.activePaperAppearanceId)
-      ? value.activePaperAppearanceId : 'paper-plain';
+    const themeId = letterThemeById(typeof value.activeThemeId === 'string' ? value.activeThemeId : DEFAULT_LETTER_THEME_ID).id;
     const fontPackageId = fontPackageById(typeof value.activeFontPackageId === 'string' ? value.activeFontPackageId : DEFAULT_FONT_PACKAGE_ID).id;
     const collectedPatternIds = [...new Set(
       stringArray(value.collectedPatternIds)
@@ -83,9 +76,7 @@ export function parseLetterBurningState(serialized: string | null): LetterBurnin
       journalEntries: entries,
       postcardMileage: mileage,
       collectedPatternIds,
-      unlockedAppearanceIds: [...new Set([...unlockedAppearanceIds(mileage), ...unlocked])],
-      activeEnvelopeAppearanceId: envelope,
-      activePaperAppearanceId: paper,
+      activeThemeId: themeId,
       activeFontPackageId: fontPackageId,
       achievementIds: stringArray(value.achievementIds),
       statCadenceCount: Number.isSafeInteger(value.statCadenceCount) && Number(value.statCadenceCount) >= 0
@@ -119,7 +110,6 @@ export function settleCompletedPostcard(
     journalEntries: [...state.journalEntries, normalizedEntry],
     postcardMileage: mileage,
     collectedPatternIds: collected,
-    unlockedAppearanceIds: unlockedAppearanceIds(mileage),
     achievementIds: [...new Set([...state.achievementIds, ...achievements])],
     statCadenceCount: state.statCadenceCount + 1,
   };
@@ -129,16 +119,16 @@ export function clearJournal(state: LetterBurningPersistedState): LetterBurningP
   return { ...state, journalEntries: [], collectedPatternIds: [] };
 }
 
-export function activateAppearance(
+export function activateLetterTheme(
   state: LetterBurningPersistedState,
-  appearanceId: string,
+  themeId: string,
+  mileage: number,
 ): LetterBurningPersistedState {
-  if (!state.unlockedAppearanceIds.includes(appearanceId)) return state;
-  const definition = APPEARANCES.find((item) => item.id === appearanceId);
-  if (!definition) return state;
-  return definition.kind === 'envelope'
-    ? { ...state, activeEnvelopeAppearanceId: appearanceId }
-    : { ...state, activePaperAppearanceId: appearanceId };
+  const definition = letterThemeById(themeId);
+  if (definition.id !== themeId || mileage < definition.unlockMileage) return state;
+  // 重复点选当前主题：保持原状态对象，避免触发整套资产重载
+  if (state.activeThemeId === definition.id) return state;
+  return { ...state, activeThemeId: definition.id };
 }
 
 export function activateFontPackage(

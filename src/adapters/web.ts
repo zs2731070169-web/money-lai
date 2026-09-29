@@ -108,7 +108,8 @@ function requestMultilineText(request: TextInputRequest): Promise<TextInputResul
     // body 上的 user-select:none 供画布手势防误选；编辑区显式放开，保证长按/拖选可跨多字符
     Object.assign(input.style, { width: '100%', height: '100%', boxSizing: 'border-box', padding: `${draftPaddingY} ${draftPaddingX}`, outline: 'none', overflowY: 'auto', overscrollBehaviorY: 'contain', touchAction: 'pan-y', WebkitOverflowScrolling: 'touch', whiteSpace: 'pre-wrap', overflowWrap: 'break-word', background: 'transparent', color: '#354940', letterSpacing: '-0.2px', font: `17px/1.4 ${request.fontFamily ?? "'Letter LXGW WenKai',cursive"}`, caretColor: '#6F4F3E', userSelect: 'text', webkitUserSelect: 'text' });
     hideDraftScrollbar(input);
-    const actions = document.createElement('div'); Object.assign(actions.style, { position: 'fixed', left: '50%', bottom: 'calc(env(safe-area-inset-bottom, 0px) + clamp(28px, 7vh, 50px))', transform: 'translateX(-50%)', width: 'min(300px, calc(100vw - 48px))', display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '0', zIndex: '22' });
+    const actions = document.createElement('div');
+    Object.assign(actions.style, { position: 'fixed', left: '50%', bottom: 'calc(env(safe-area-inset-bottom, 0px) + clamp(28px, 7vh, 50px))', transform: 'translateX(-50%)', width: 'min(300px, calc(100vw - 48px))', display: 'flex', justifyContent: 'center', gap: '36px', marginTop: '0', zIndex: '22' });
     const cancel = button(COPY.cancel); const done = button(COPY.confirm, true);
     let finished = false;
     // innerText 把 contenteditable 的换行读成 \n；行内不间断空格归一为普通空格后，再按 Unicode 码点裁切长度
@@ -126,7 +127,7 @@ function requestMultilineText(request: TextInputRequest): Promise<TextInputResul
     // 挂在面板层（面板已 position:relative）：输入区的 overflow:hidden 会把出界的负偏移裁掉，
     // 面板右缘更靠外，正偏移即可贴近纸角；负值同样会被面板裁切，勿用。
     const characterCounter = document.createElement('div');
-    Object.assign(characterCounter.style, { position: 'absolute', right: '10px', bottom: '42px', pointerEvents: 'none', color: 'rgba(53,73,64)', font: "14px ui-rounded,'PingFang SC',sans-serif", fontVariantNumeric: 'tabular-nums' });
+    Object.assign(characterCounter.style, { position: 'absolute', right: '5px', bottom: '42px', pointerEvents: 'none', color: 'rgba(53,73,64)', font: "14px ui-rounded,'PingFang SC',sans-serif", fontVariantNumeric: 'tabular-nums' });
     const refreshCharacterCounter = (): void => {
       characterCounter.textContent = `${Array.from(readInput()).length}/${request.maxLength}`;
     };

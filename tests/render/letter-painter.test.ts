@@ -63,14 +63,10 @@ function imageRecordingContext() {
 }
 
 describe('燃信画师', () => {
-  const visualOptions = {
-    envelopeAppearanceId: 'envelope-kraft', paperAppearanceId: 'paper-plain',
-  } as const;
-
   it('长正文只在信纸书写区绘制可见部分，避免流出纸边', () => {
     const recording = recordingContext();
     const rect = { left: 20, top: 30, width: 200, height: 300 };
-    paintPaperWriting(recording.context, rect, '这是一段很长的正文。'.repeat(45), '想说的是……');
+    paintPaperWriting(recording.context, rect, '这是一段很长的正文。'.repeat(45));
     expect(recording.clippedPaths).toContainEqual([
       [52, 72], [188, 72], [188, 288], [52, 288],
     ]);
@@ -83,8 +79,7 @@ describe('燃信画师', () => {
     const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
     paintLetterScene(recording.context, {
       width: 402, height: 874, layout, state: { ...createBurningState(), phase: 'burn', elapsedMs: 1350 },
-      prompt: '想说的是……',
-      ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+      burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
     });
     expect(recording.strokes).toContain(OUTER_FLAME_COLOR);
     expect(recording.strokes).toContain(INNER_FLAME_COLOR);
@@ -95,8 +90,7 @@ describe('燃信画师', () => {
     const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
     paintLetterScene(recording.context, {
       width: 402, height: 874, layout, state: { ...createBurningState(), phase: 'burn', elapsedMs: 1350 },
-      prompt: '想说的是……',
-      ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+      burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
     });
     const bottom = layout.burnCardRect.top + layout.burnCardRect.height;
     const mask = recording.clippedPaths.find((path) => path[0]?.[1] === bottom && path[1]?.[1] === bottom);
@@ -114,8 +108,7 @@ describe('燃信画师', () => {
     // “放回”手势：offsetY 钳回 0，单帧大位移让倾角直接到 8°，纸角原本会绕折线荡出信封底线
     paintLetterScene(recording.context, {
       width: 402, height: 874, layout, state: { ...createBurningState(), phase: 'draw', tiltDegrees: 8 },
-      prompt: '想说的是……',
-      ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+      burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
     });
     const envelopeBottom = layout.envelopeRect.top + layout.envelopeRect.height;
     // 护栏裁剪：全宽矩形，底边落在信封底线内侧 1px（且不低于底线 2px），纸角被挡在信封内
@@ -134,8 +127,7 @@ describe('燃信画师', () => {
     const asset = (id: string) => ({ id }) as unknown as CanvasImageSource;
     paintLetterScene(recording.context, {
       width: 402, height: 874, layout, state: createBurningState(),
-      prompt: '想说的是……',
-      ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+      burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
       assets: {
         background: asset('background'), closedEnvelope: asset('closed'),
         openEnvelopeBack: asset('back'), openEnvelopeFront: asset('front'), letterPaper: asset('paper'),
@@ -157,8 +149,8 @@ describe('燃信画师', () => {
     const paintPaper = (state: ReturnType<typeof createBurningState>) => {
       const recording = imageRecordingContext();
       paintLetterScene(recording.context, {
-        width: 402, height: 874, layout, state, prompt: '想说的是……',
-        ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+        width: 402, height: 874, layout, state,
+        burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
         assets: { background: asset('background'), openEnvelopeBack: asset('back'), openEnvelopeFront: asset('front'), letterPaper: asset('paper') },
       });
       return recording.draws.filter((draw) => draw.id === 'paper');
@@ -184,8 +176,8 @@ describe('燃信画师', () => {
     const layout = computeLetterSceneLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 });
     const asset = (id: string) => ({ id }) as unknown as CanvasImageSource;
     paintLetterScene(recording.context, {
-      width: 402, height: 874, layout, state: { ...createBurningState(), phase: 'front' }, prompt: '想说的是……',
-      ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+      width: 402, height: 874, layout, state: { ...createBurningState(), phase: 'front' },
+      burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
       assets: { openEnvelopeBack: asset('back'), openEnvelopeFront: asset('front'), letterPaper: asset('paper') },
     });
     const paper = recording.draws.find((draw) => draw.id === 'paper');
@@ -200,8 +192,8 @@ describe('燃信画师', () => {
     for (const phase of ['front', 'back', 'drag', 'rebound', 'burn'] as const) {
       const recording = imageRecordingContext();
       paintLetterScene(recording.context, {
-        width: 402, height: 874, layout, state: { ...createBurningState(), phase }, prompt: '想说的是……',
-        ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+        width: 402, height: 874, layout, state: { ...createBurningState(), phase },
+        burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
         assets: { openEnvelopeBack: asset('back'), openEnvelopeFront: asset('front'), letterPaper: asset('paper') },
       });
       expect(recording.draws.map((draw) => draw.id), phase).toEqual(['back', 'paper', 'front']);
@@ -216,8 +208,7 @@ describe('燃信画师', () => {
       paintLetterScene(recording.context, {
         width: 402, height: 874, layout,
         state: { ...createBurningState(), phase, text },
-        prompt: '其实一直没说的是……',
-        ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+        burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
         assets: { background: asset('background'), openEnvelopeBack: asset('back'), openEnvelopeFront: asset('front'), letterPaper: asset('paper') },
       });
       return recording;
@@ -243,10 +234,9 @@ describe('燃信画师', () => {
       expect(line.y).toBeGreaterThan(layout.cardRect.top);
       expect(line.y).toBeLessThan(layout.cardRect.top + layout.cardRect.height);
     }
-    const prompt = paintPhase('back');
-    expect(prompt.fillTexts).toHaveLength(1);
-    expect(Number.parseFloat(prompt.fillTexts[0].font)).toBeGreaterThan(Number.parseFloat(back.fillTexts[0].font));
-    expect(prompt.fillTexts[0].alpha).toBe(0.52);
+    // 空文字保持留白：缩小的信纸不再印引导语
+    const blank = paintPhase('back');
+    expect(blank.fillTexts).toHaveLength(0);
   });
 
   it('书写态使用所选字体套餐的中英文族名栈', () => {
@@ -255,7 +245,7 @@ describe('燃信画师', () => {
     paintLetterScene(recording.context, {
       width: 402, height: 874, layout,
       state: { ...createBurningState(), phase: 'back', text: '一封信 with all my heart' },
-      prompt: '其实一直没说的是……', ...visualOptions, fontPackageId: 'romantic-literary',
+      fontPackageId: 'romantic-literary',
       burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
       assets: { openEnvelopeBack: { id: 'back' } as unknown as CanvasImageSource, openEnvelopeFront: { id: 'front' } as unknown as CanvasImageSource, letterPaper: { id: 'paper' } as unknown as CanvasImageSource },
     });
@@ -274,7 +264,7 @@ describe('燃信画师', () => {
       paintLetterScene(recording.context, {
         width: 402, height: 874, layout,
         state: { ...createBurningState(), phase, elapsedMs, text: '第一行\n第二行' },
-        prompt: '想说的是……', ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+        burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
         assets: { background: asset('background'), openEnvelopeBack: asset('back'), openEnvelopeFront: asset('front'), letterPaper: asset('paper') },
       });
       return recording.draws;
@@ -296,8 +286,7 @@ describe('燃信画师', () => {
     const asset = (id: string) => ({ id }) as unknown as CanvasImageSource;
     paintLetterScene(recording.context, {
       width: 402, height: 874, layout, state: createBurningState(),
-      prompt: '想说的是……',
-      ...visualOptions, burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
+      burnGeometry: createBurnGeometryBuffer(), burnSeed: 8, menuGlowProgress: 0,
       assets: {
         background: asset('background'), backgroundComposed: asset('composed'),
         closedEnvelope: asset('closed'), openEnvelope: asset('open'), letterPaper: asset('paper'),

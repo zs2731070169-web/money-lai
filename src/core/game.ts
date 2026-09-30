@@ -268,7 +268,8 @@ export class Game {
       } else if (containsPoint(dialog.sendButtonRect, point.positionX, point.positionY)) {
         this.letter = beginDispatchSend(this.letter);
         this.openDispatchInput();
-      } else if (!containsPoint(dialog.panelRect, point.positionX, point.positionY)) {
+      } else if (containsPoint(dialog.cancelButtonRect, point.positionX, point.positionY)
+        || !containsPoint(dialog.panelRect, point.positionX, point.positionY)) {
         this.letter = cancelDispatch(this.letter);
       }
       return;

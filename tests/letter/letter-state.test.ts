@@ -146,12 +146,13 @@ describe('倾诉收好纯状态机', () => {
     expect(done.effects).not.toContain('afterglow');
   });
 
-  it('上滑达屏高 15% 或速度超 700px/s 进入收好', () => {
-    const back = toBack(finishEditing(drawnToEdit()));
-    const byDistance = swipeToTuck(back, 650, 480, 500, 800, false);
-    expect(byDistance.state.phase).toBe('dispatch');
-    const bySpeed = swipeToTuck(back, 650, 520, 100, 800, false);
-    expect(bySpeed.state.phase).toBe('dispatch');
+  it('上滑达屏高 15% 或速度超 700px/s：有内容进抉择，空白信直接收好', () => {
+    const written = toBack(finishEditing(setPostcardText(drawnToEdit(), '有话要说')));
+    expect(swipeToTuck(written, 650, 480, 500, 800, false).state.phase).toBe('dispatch');
+    expect(swipeToTuck(written, 650, 520, 100, 800, false).state.phase).toBe('dispatch');
+    // 空白信不弹抉择，直接折回收好
+    const blank = toBack(finishEditing(drawnToEdit()));
+    expect(swipeToTuck(blank, 650, 480, 500, 800, false).state.phase).toBe('settle');
   });
 
   it('未达阈值 300ms 回弹展示位，文字不丢失；拖拽跟手 0.85 阻尼', () => {

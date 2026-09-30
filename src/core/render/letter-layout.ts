@@ -40,19 +40,23 @@ const FOLDED_LETTER_NOTCH_INSERTION_RATIO = 0.25;
 // 让折叠信纸真正落进袋腔；底边仍留 2px 安全余量，避免穿出信封轮廓。
 const ENVELOPE_BOTTOM_CLEARANCE = 2;
 
-export interface DispatchDialogLayout { panelRect: Rect; localButtonRect: Rect; sendButtonRect: Rect }
+export interface DispatchDialogLayout { panelRect: Rect; localButtonRect: Rect; sendButtonRect: Rect; cancelButtonRect: Rect }
 
-/** 上滑后的寄送抉择弹层：居中暖纸面板 + 两个纵排按钮；命中与绘制共用。 */
+/** 上滑后的寄送抉择弹层：居中暖纸面板 + 三个纵排按钮（本地收好/寄出/取消）；命中与绘制共用。 */
 export function computeDispatchDialogLayout(viewportWidth: number, viewportHeight: number, safeArea: SafeAreaInsets): DispatchDialogLayout {
   const panelWidth = Math.min(300, viewportWidth - safeArea.left - safeArea.right - 40);
-  const panelHeight = 168;
+  // 三按钮纵排，按钮高 44、按钮间距 18，防误触
+  const buttonHeight = 44; const buttonGap = 18; const buttonTop = 70;
+  const panelHeight = buttonTop + buttonHeight * 3 + buttonGap * 2 + 26;
   const left = (viewportWidth - panelWidth) / 2;
   const top = Math.max(safeArea.top + 40, (viewportHeight - panelHeight) / 2 - 40);
   const buttonWidth = panelWidth - 48;
+  const buttonAt = (index: number) => ({ left: left + 24, top: top + buttonTop + index * (buttonHeight + buttonGap), width: buttonWidth, height: buttonHeight });
   return {
     panelRect: { left, top, width: panelWidth, height: panelHeight },
-    localButtonRect: { left: left + 24, top: top + 72, width: buttonWidth, height: 40 },
-    sendButtonRect: { left: left + 24, top: top + 120, width: buttonWidth, height: 40 },
+    localButtonRect: buttonAt(0),
+    sendButtonRect: buttonAt(1),
+    cancelButtonRect: buttonAt(2),
   };
 }
 

@@ -395,7 +395,7 @@ function paintActivePostcard(context: CanvasRenderingContext2D, options: LetterS
 
 
 /**
- * 寄送抉择弹层：上滑释放后浮现的暖纸面板——「仅收好到本地 / 寄出这封信」。
+ * 寄送抉择弹层：上滑释放后浮现的暖纸面板——「存入自己的手帐 / 寄出这封信 / 取消」。
  * 自绘（非系统对话框）且不触碰音频，BGM 全程连续；dispatch-send 期间保持面板在底。
  */
 function paintDispatchDialog(context: CanvasRenderingContext2D, options: LetterScenePaintOptions): void {
@@ -408,17 +408,21 @@ function paintDispatchDialog(context: CanvasRenderingContext2D, options: LetterS
   context.fillStyle = INK; context.textAlign = 'center'; context.textBaseline = 'middle';
   context.font = "17px ui-rounded,'PingFang SC',sans-serif";
   context.fillText(COPY.dispatchTitle, layout.panelRect.left + layout.panelRect.width / 2, layout.panelRect.top + 40);
-  for (const [rect, label, primary] of [
-    [layout.localButtonRect, COPY.dispatchLocalButton, false],
-    [layout.sendButtonRect, COPY.dispatchSendButton, true],
+  for (const [rect, label, style] of [
+    [layout.localButtonRect, COPY.dispatchLocalButton, 'secondary'],
+    [layout.sendButtonRect, COPY.dispatchSendButton, 'primary'],
+    [layout.cancelButtonRect, COPY.dispatchCancelButton, 'plain'],
   ] as const) {
     context.save();
-    context.beginPath(); context.roundRect(rect.left, rect.top, rect.width, rect.height, 20);
-    context.fillStyle = primary ? '#8B6D59' : 'rgba(76,53,38,.08)'; context.fill();
-    context.fillStyle = primary ? '#FFF9F0' : INK;
+    context.beginPath();
+    if (style !== 'plain') {
+      context.roundRect(rect.left, rect.top, rect.width, rect.height, 20);
+      context.fillStyle = style === 'primary' ? '#8B6D59' : 'rgba(76,53,38,.08)'; context.fill();
+    }
+    context.fillStyle = INK; context.globalAlpha = style === 'plain' ? 0.66 : 1;
     context.font = "15px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center';
     context.fillText(label, rect.left + rect.width / 2, rect.top + rect.height / 2);
-    context.restore();
+    context.globalAlpha = 1; context.restore();
   }
   context.restore();
 }

@@ -125,13 +125,14 @@ export function endTuck(
   const elapsedSeconds = Math.max(0.001, (atMs - state.gestureStartMs) / 1000);
   const speed = distance / elapsedSeconds;
   if (distance >= viewportHeight * TUCK_DISTANCE_RATIO || speed >= TUCK_SPEED_PX_PER_SECOND) {
-    // 达阈值不直接收好：先进入寄送抉择，信纸停在展示位由弹层决定去向
-    return { state: { ...state, phase: 'dispatch', elapsedMs: 0, pointerId: null, offsetY: 0, tiltDegrees: 0, wantsStat }, effects: [] };
+    // 有内容才弹寄送抉择（寄/存/取消三选）；空白信直接折回收好，不打断
+    const targetPhase = state.text ? 'dispatch' : 'settle';
+    return { state: { ...state, phase: targetPhase, elapsedMs: 0, pointerId: null, offsetY: 0, tiltDegrees: 0, wantsStat }, effects: [] };
   }
   return { state: { ...state, phase: 'rebound', elapsedMs: 0, pointerId: null, reboundStartOffsetY: state.offsetY }, effects: [] };
 }
 
-/** 抉择·仅收好到本地：进入既有折回入袋动画（落库链路不变）。 */
+/** 抉择·存入自己的手帐：进入既有折回入袋动画（落库链路不变）。 */
 export function beginDispatchLocalTuck(state: LetterState): LetterState {
   if (state.phase !== 'dispatch') return state;
   return { ...state, phase: 'settle', elapsedMs: 0, pointerId: null, offsetY: 0, tiltDegrees: 0 };

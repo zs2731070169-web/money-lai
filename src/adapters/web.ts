@@ -263,13 +263,14 @@ function requestDispatchInput(): Promise<string | null> {
     Object.assign(title.style, { font: "18px/1.4 ui-rounded,'PingFang SC',sans-serif", marginBottom: '20px' });
     // 前缀输入 + 类型下拉并排
     const inputRow = document.createElement('div');
-    Object.assign(inputRow.style, { display: 'flex', gap: '0', marginBottom: '16px' });
+    Object.assign(inputRow.style, { display: 'flex', gap: '0', marginBottom: '16px', alignItems: 'stretch' });
     const prefixInput = document.createElement('input');
     prefixInput.type = 'text';
     prefixInput.placeholder = '邮箱前缀';
     prefixInput.autocapitalize = 'none'; prefixInput.spellcheck = false;
     Object.assign(prefixInput.style, {
       flex: '1', minWidth: '0', padding: '12px 14px', border: '1px solid #BCA891', borderRight: 'none',
+      height: '44px',
       borderRadius: '10px 0 0 10px', outline: 'none', font: "16px ui-rounded,'PingFang SC',sans-serif",
       background: '#FFF9F0', color: '#495853', boxSizing: 'border-box',
     });
@@ -282,6 +283,7 @@ function requestDispatchInput(): Promise<string | null> {
     const dropdownTrigger = document.createElement('div');
     Object.assign(dropdownTrigger.style, {
       padding: '12px 10px', border: '1px solid #BCA891', borderLeft: 'none', borderRadius: '0 10px 10px 0',
+      height: 'auto', minHeight: '44px', flexShrink: '0',
       font: "14px ui-rounded,'PingFang SC',sans-serif", background: '#F1E4D2', color: '#495853',
       textAlign: 'center', whiteSpace: 'nowrap', userSelect: 'none', webkitUserSelect: 'none',
       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', boxSizing: 'border-box',
@@ -325,8 +327,8 @@ function requestDispatchInput(): Promise<string | null> {
       dropdownList.appendChild(item);
     }
     dropdown.append(dropdownTrigger, dropdownList);
-    // 点外部收起下拉
-    document.addEventListener('click', () => { if (dropdownOpen) toggleDropdown(); });
+    // 点外部收起下拉：用 setTimeout(0) 避免与选项点击同帧开-关闪烁
+    document.addEventListener('click', () => { setTimeout(() => { if (dropdownOpen) toggleDropdown(); }, 0); });
     // 自定义域输入框
     const customDomainRow = document.createElement('div');
     customDomainRow.style.cssText = 'display:none; margin:-12px 0 16px;';

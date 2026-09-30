@@ -247,7 +247,7 @@ async function shareTemporaryPng(fileName: string, base64Data: string, title: st
 
 
 /** 寄送输入面板：收件人邮箱 = 前缀输入 + 类型下拉，暖纸样式与 App 基调一致。 */
-const EMAIL_DOMAINS = ['qq.com', '163.com', '126.com', 'gmail.com', 'outlook.com', 'icloud.com', '自定义'] as const;
+const EMAIL_DOMAINS = ['qq.com', '163.com', '126.com', 'gmail.com', 'outlook.com', 'icloud.com'] as const;
 
 function isValidEmailPrefix(prefix: string): boolean {
   return /^[a-zA-Z0-9][a-zA-Z0-9._%-]*$/.test(prefix) && prefix.length >= 2;
@@ -277,21 +277,27 @@ function requestDispatchInput(): Promise<string | null> {
     // 自绘下拉：不用 <select>（iOS 系统样式突兀），改为点击展开的暖纸选项列表
     let selectedDomain: string = EMAIL_DOMAINS[0];
     const dropdown = document.createElement('div');
+    dropdown.className = 'mail-domain-dropdown';
     Object.assign(dropdown.style, {
-      position: 'relative', minWidth: '110px', cursor: 'pointer',
+      position: 'relative', width: 'min(132px, 48%)', flexShrink: '0',
     });
-    const dropdownTrigger = document.createElement('div');
+    const dropdownTrigger = document.createElement('button');
+    dropdownTrigger.type = 'button';
+    dropdownTrigger.setAttribute('aria-label', '选择邮箱类型');
+    dropdownTrigger.setAttribute('aria-expanded', 'false');
     Object.assign(dropdownTrigger.style, {
-      padding: '12px 10px', border: '1px solid #BCA891', borderLeft: 'none', borderRadius: '0 10px 10px 0',
-      height: 'auto', minHeight: '44px', flexShrink: '0',
+      width: '100%', padding: '0 12px', border: '1px solid #BCA891', borderLeft: 'none',
+      borderRadius: '0 10px 10px 0', outline: 'none', appearance: 'none', webkitAppearance: 'none',
+      height: '44px', flexShrink: '0', overflow: 'hidden', cursor: 'pointer',
       font: "14px ui-rounded,'PingFang SC',sans-serif", background: '#F1E4D2', color: '#495853',
       textAlign: 'center', whiteSpace: 'nowrap', userSelect: 'none', webkitUserSelect: 'none',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', boxSizing: 'border-box',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', boxSizing: 'border-box',
     });
-    const dropdownLabel = document.createTextNode(`@${selectedDomain}`);
+    const dropdownLabel = document.createElement('span');
+    dropdownLabel.textContent = `@${selectedDomain}`;
     const dropdownArrow = document.createElement('span');
-    dropdownArrow.textContent = '▾';
-    Object.assign(dropdownArrow.style, { fontSize: '10px', opacity: 0.5 });
+    dropdownArrow.textContent = '◂';
+    Object.assign(dropdownArrow.style, { font: '10px/1 sans-serif', opacity: '0.55' });
     dropdownTrigger.append(dropdownLabel, dropdownArrow);
     const dropdownList = document.createElement('div');
     Object.assign(dropdownList.style, {
@@ -300,15 +306,23 @@ function requestDispatchInput(): Promise<string | null> {
       background: '#F7EFE4', display: 'none',
     });
     let dropdownOpen = false;
-    const toggleDropdown = () => {
-      dropdownOpen = !dropdownOpen;
-      dropdownList.style.display = dropdownOpen ? 'block' : 'none';
+    const setDropdownOpen = (open: boolean) => {
+      dropdownOpen = open;
+      dropdownList.style.display = open ? 'block' : 'none';
+      dropdownArrow.textContent = open ? '▾' : '◂';
+      dropdownTrigger.setAttribute('aria-expanded', String(open));
     };
-    dropdownTrigger.addEventListener('click', (event) => { event.stopPropagation(); toggleDropdown(); });
+    const toggleDropdown = () => {
+      setDropdownOpen(!dropdownOpen);
+    };
+    dropdownTrigger.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleDropdown();
+    });
     const domainItems = new Map<string, HTMLElement>();
     for (const domain of EMAIL_DOMAINS) {
       const item = document.createElement('div');
-      item.textContent = domain === '自定义' ? '自定义…' : `@${domain}`;
+      item.textContent = `@${domain}`;
       Object.assign(item.style, {
         padding: '10px 14px', font: "14px ui-rounded,'PingFang SC',sans-serif",
         color: '#495853', textAlign: 'center', userSelect: 'none', webkitUserSelect: 'none',
@@ -317,10 +331,9 @@ function requestDispatchInput(): Promise<string | null> {
       item.addEventListener('click', (event) => {
         event.stopPropagation();
         selectedDomain = domain;
-        dropdownLabel.textContent = domain === '自定义' ? '自定义…' : `@${domain}`;
-        customDomainRow.style.display = domain === '自定义' ? 'block' : 'none';
-        if (domain !== '自定义') customDomainInput.value = '';
+        dropdownLabel.textContent = `@${domain}`;
         toggleDropdown();
+        prefixInput.focus();
         refreshConfirm();
       });
       domainItems.set(domain, item);
@@ -328,31 +341,18 @@ function requestDispatchInput(): Promise<string | null> {
     }
     dropdown.append(dropdownTrigger, dropdownList);
 
-    // 自定义域输入框
-    const customDomainRow = document.createElement('div');
-    customDomainRow.style.cssText = 'display:none; margin:-12px 0 16px;';
-    const customDomainInput = document.createElement('input');
-    customDomainInput.type = 'text'; customDomainInput.placeholder = '输入完整域名（如 example.com）';
-    Object.assign(customDomainInput.style, {
-      width: '100%', padding: '12px 14px', border: '1px solid #BCA891', borderRadius: '10px',
-      outline: 'none', font: "16px ui-rounded,'PingFang SC',sans-serif", background: '#FFF9F0',
-      color: '#495853', boxSizing: 'border-box',
-    });
-    customDomainRow.appendChild(customDomainInput);
     inputRow.append(prefixInput, dropdown);
     // 确认/取消
     let settled = false;
     const finish = (result: string | null) => {
       if (settled) return; settled = true;
-      prefixInput.blur(); customDomainInput.blur(); shell.remove();
+      prefixInput.blur(); shell.remove();
       resolve(result);
     };
     const readFullAddress = (): string | null => {
       const prefix = prefixInput.value.trim();
       if (!isValidEmailPrefix(prefix)) return null;
-      const domain = selectedDomain === '自定义'
-        ? customDomainInput.value.trim().replace(/^@/, '')
-        : selectedDomain;
+      const domain = selectedDomain;
       if (!domain || !/^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$/.test(domain)) return null;
       return `${prefix}@${domain}`;
     };
@@ -362,13 +362,12 @@ function requestDispatchInput(): Promise<string | null> {
     Object.assign(actions.style, { display: 'flex', justifyContent: 'center', gap: '14px' });
     const refreshConfirm = () => { confirmButton.disabled = readFullAddress() === null; };
     prefixInput.addEventListener('input', refreshConfirm);
-    customDomainInput.addEventListener('input', refreshConfirm);
     confirmButton.addEventListener('click', () => { finish(readFullAddress()); });
     cancelButton.addEventListener('click', () => finish(null));
     prefixInput.addEventListener('keydown', (event) => { if (event.key === 'Escape') finish(null); });
     actions.append(cancelButton, confirmButton);
     panel.addEventListener('click', (event) => { if (dropdownOpen && !dropdown.contains(event.target as Node)) toggleDropdown(); });
-    panel.append(title, inputRow, customDomainRow, actions);
+    panel.append(title, inputRow, actions);
     shell.addEventListener('click', (event) => { if (dropdownOpen && event.target !== dropdownTrigger) toggleDropdown(); if (event.target === shell) finish(null); });
     shell.append(panel);
     document.body.append(shell);
@@ -408,6 +407,16 @@ export function createWebPlatformAdapter(): PlatformAdapter {
     writePersistentValue(key, value) { return storage.write(key, value); },
     requestMultilineText,
     requestDispatchInput,
+    async openMailCompose(recipient: string, subject: string, body: string): Promise<boolean> {
+      // mailto: 预填收件人/主题/正文，经系统邮件客户端发出
+      const url = `mailto:${encodeURIComponent(recipient)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      try {
+        window.location.href = url;
+        return true;
+      } catch {
+        return false;
+      }
+    },
     requestPrivacyConsent,
     requestConfirmation(message) { return requestInPageConfirmation(message); },
     openExternalUrl,

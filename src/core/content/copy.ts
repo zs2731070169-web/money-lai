@@ -26,6 +26,8 @@ export const COPY = {
   dispatchCancelButton: '取消',
   dispatchInputTitle: '寄给谁？',
   dispatchInputConfirm: '寄出',
+  mailSubject: '你有一封信',
+  mailBodyHint: '点击链接拆开这封信：',
   clearConfirm: '确认清空手帐？',
   cancel: '取消',
   confirm: '确认',

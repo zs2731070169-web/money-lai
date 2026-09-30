@@ -27,6 +27,11 @@
         -webkit-user-select: none;
         user-select: none;
       }
+      /* 自绘邮箱类型菜单由 WebKit 当作可点按区域；默认触摸高亮会盖住暖纸按钮数帧。 */
+      .mail-domain-dropdown,
+      .mail-domain-dropdown * {
+        -webkit-tap-highlight-color: transparent;
+      }
     </style>
   </head>
   <body>

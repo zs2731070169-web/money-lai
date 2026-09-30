@@ -37,7 +37,6 @@ function swipeUpToTuck(platform: FakePlatform, layout: ReturnType<typeof compute
   const cardY = layout.cardRect.top + layout.cardRect.height / 2;
   platform.touch('start', cardX, cardY); platform.now += 200;
   platform.touch('move', cardX, cardY - 180); platform.touch('end', cardX, cardY - 180);
-    clickDispatchLocal(platform);
 }
 
 /** 上滑释放后点弹层「仅收好到本地」，走既有收好链路 */
@@ -142,6 +141,7 @@ describe('信封到收好的端到端链路', () => {
     await confirmToBack(platform, layout);
     // 确认只停展示位：未落库、未计数
     expect(game.getTestSnapshot().phase).toBe('back');
+
     expect(game.getTestSnapshot().persisted.journalEntries).toHaveLength(0);
     expect(platform.countCalls).toBe(0);
     swipeUpToTuck(platform, layout);
@@ -165,11 +165,39 @@ describe('信封到收好的端到端链路', () => {
     await Promise.resolve(); await Promise.resolve();
     for (let index = 0; index < 4; index += 1) platform.tick(100);
     expect(game.getTestSnapshot().phase).toBe('back');
+
     const cardX = layout.cardRect.left + layout.cardRect.width / 2; const cardY = layout.cardRect.top + layout.cardRect.height / 2;
     platform.touch('start', cardX, cardY); platform.now += 100; platform.touch('end', cardX, cardY);
     expect(game.getTestSnapshot().inputActive).toBe(true);
     await Promise.resolve(); await Promise.resolve();
     expect(game.getTestSnapshot().phase).toBe('edit-return');
+  });
+
+it('寄出确认后调 mailto 预填收件人与拆信链接', async () => {
+    const { game, platform, layout } = await readyGame('寄出的内容');
+    await confirmToBack(platform, layout);
+    expect(game.getTestSnapshot().phase).toBe('back');
+
+    swipeUpToTuck(platform, layout);
+    expect(game.getTestSnapshot().phase).toBe('dispatch');
+    // 点寄出按钮
+    const dialog = computeDispatchDialogLayout(platform.viewport.width, platform.viewport.height, platform.safe);
+    const sendX = dialog.sendButtonRect.left + dialog.sendButtonRect.width / 2;
+    const sendY = dialog.sendButtonRect.top + dialog.sendButtonRect.height / 2;
+    platform.touch('start', sendX, sendY); platform.touch('end', sendX, sendY);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    // 输入面板返回地址
+    expect(platform.dispatchRequests).toBe(1);
+    // mailto 被调用且含拆信链接
+    expect(platform.mailComposeCalls).toHaveLength(1);
+    const mail = platform.mailComposeCalls[0];
+    expect(mail.recipient).toBe('friend@qq.com');
+    expect(mail.subject).toBe('你有一封信');
+    expect(mail.body).toContain('#');
+    // 信纸进入 settle 链路
+    expect(game.getTestSnapshot().phase).toBe('settle');
+    for (let index = 0; index < 60; index += 1) platform.tick(100);
+    expect(game.getTestSnapshot().phase).toBe('idle');
   });
 
   it('空白信纸上滑收好完全无痕：不落帐、不结算、不计数、不显示统计', async () => {
@@ -222,6 +250,7 @@ describe('信封到收好的端到端链路', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     for (let index = 0; index < 4; index += 1) platform.tick(100);
     expect(game.getTestSnapshot().phase).toBe('back');
+
     platform.paintedTexts.length = 0; platform.tick(100);
     expect(platform.paintedTexts.join('')).toBe('');
 
@@ -232,6 +261,7 @@ describe('信封到收好的端到端链路', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     for (let index = 0; index < 4; index += 1) platform.tick(100);
     expect(game.getTestSnapshot().phase).toBe('back');
+
     platform.paintedTexts.length = 0; platform.tick(100);
     expect(platform.paintedTexts.join('')).toContain('一句话');
 

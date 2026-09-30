@@ -37,6 +37,8 @@ export interface PlatformAdapter {
   requestMultilineText(request: TextInputRequest): Promise<TextInputResult>;
   /** 寄送输入：收件人邮箱（前缀+类型下拉），返回完整地址或 null（取消）。 */
   requestDispatchInput(): Promise<string | null>;
+  /** 打开系统邮件预填发出：收件人 + 主题 + 正文（拆信链接）。 */
+  openMailCompose(recipient: string, subject: string, body: string): Promise<boolean>;
   requestPrivacyConsent(policyUrl: string | null): Promise<boolean>;
   requestConfirmation(message: string): Promise<boolean>;
   openExternalUrl(url: string): Promise<boolean>;

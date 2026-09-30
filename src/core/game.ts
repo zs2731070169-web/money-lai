@@ -19,6 +19,7 @@ import type { NormalizedTouchPoint, PlatformAdapter, PrimaryCanvas, TouchPhase }
 import { computeFontPackageItemRects, computePageItemRects, hitJournalCell, journalClearRect, journalDetailPaperRect, pageBackRect, paintAppOverlay } from './render/app-overlay-painter';
 import { paintAdaptiveBackground, planAdaptiveBackground } from './render/background-composition';
 import { computeDispatchDialogLayout, computeLetterSceneLayout, containsPoint } from './render/letter-layout';
+import { buildDispatchLink } from './letter/dispatch-codec';
 import { paintLetterScene, type LetterSceneAssets } from './render/letter-painter';
 import { computeMenuLayout, type AppPage, type MenuAction } from './render/menu-layout';
 
@@ -267,7 +268,7 @@ export class Game {
         this.letter = beginDispatchLocalTuck(this.letter);
       } else if (containsPoint(dialog.sendButtonRect, point.positionX, point.positionY)) {
         this.letter = beginDispatchSend(this.letter);
-        this.openDispatchInput();
+        void this.openDispatchInput();
       } else if (containsPoint(dialog.cancelButtonRect, point.positionX, point.positionY)
         || !containsPoint(dialog.panelRect, point.positionX, point.positionY)) {
         this.letter = cancelDispatch(this.letter);
@@ -284,7 +285,7 @@ export class Game {
       const blankTuck = this.letter.text.length === 0;
       const wantsStat = !blankTuck && shouldDisplayBurnCount(this.persisted.statCadenceCount + 1);
       const update = endTuck(this.letter, point.pointerId, point.positionY, now, viewport.height, wantsStat);
-      this.letter = update.state; this.consumeEffects(update.effects);
+      this.letter = update.state; this.consumeEffects(update.effects); console.log('[after-endTuck-consume] phase:', this.letter.phase);
     }
   }
 
@@ -297,7 +298,19 @@ export class Game {
       this.letter = cancelDispatchSend(this.letter);
       return;
     }
-    // 后端记录与邮件发出将在任务 2.3 接入；当前先走 settle 链路
+    // 生成拆信链接 + mailto 预填发出（后端记录任务 2.2 后补）
+    const payload = {
+      text: this.letter.text,
+      date: new Date().toISOString().slice(0, 10),
+      themeId: this.persisted.activeThemeId,
+    };
+    const link = buildDispatchLink('https://letterburning.hariku.workers.dev/v', payload);
+    const opened = await this.platform.openMailCompose(
+      recipient,
+      COPY.mailSubject,
+      `${COPY.mailBodyHint}\n${link}`,
+    );
+    if (!opened) this.showNotice(COPY.unavailable);
     const update = confirmDispatchSend(this.letter);
     this.letter = update.state;
     this.consumeEffects(update.effects);

@@ -59,6 +59,8 @@ export class FakePlatform implements PlatformAdapter {
   readonly dispatchInputRequests = 0;
   dispatchRequests = 0;
   async requestDispatchInput(): Promise<string | null> { this.dispatchRequests += 1; return this.dispatchInputResult; }
+  readonly mailComposeCalls: Array<{ recipient: string; subject: string; body: string }> = [];
+  async openMailCompose(recipient: string, subject: string, body: string): Promise<boolean> { this.mailComposeCalls.push({ recipient, subject, body }); return true; }
   async requestPrivacyConsent(): Promise<boolean> { this.consentRequests += 1; return this.consent; }
   async requestConfirmation(): Promise<boolean> { return this.confirmation; }
   async openExternalUrl(url: string): Promise<boolean> { this.openedUrls.push(url); return true; }

@@ -327,8 +327,7 @@ function requestDispatchInput(): Promise<string | null> {
       dropdownList.appendChild(item);
     }
     dropdown.append(dropdownTrigger, dropdownList);
-    // 点外部收起下拉：用 setTimeout(0) 避免与选项点击同帧开-关闪烁
-    document.addEventListener('click', () => { setTimeout(() => { if (dropdownOpen) toggleDropdown(); }, 0); });
+
     // 自定义域输入框
     const customDomainRow = document.createElement('div');
     customDomainRow.style.cssText = 'display:none; margin:-12px 0 16px;';
@@ -368,8 +367,9 @@ function requestDispatchInput(): Promise<string | null> {
     cancelButton.addEventListener('click', () => finish(null));
     prefixInput.addEventListener('keydown', (event) => { if (event.key === 'Escape') finish(null); });
     actions.append(cancelButton, confirmButton);
+    panel.addEventListener('click', (event) => { if (dropdownOpen && !dropdown.contains(event.target as Node)) toggleDropdown(); });
     panel.append(title, inputRow, customDomainRow, actions);
-    shell.addEventListener('click', (event) => { if (event.target === shell) finish(null); });
+    shell.addEventListener('click', (event) => { if (dropdownOpen && event.target !== dropdownTrigger) toggleDropdown(); if (event.target === shell) finish(null); });
     shell.append(panel);
     document.body.append(shell);
     prefixInput.focus();

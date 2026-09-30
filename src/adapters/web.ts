@@ -408,13 +408,20 @@ export function createWebPlatformAdapter(): PlatformAdapter {
     requestMultilineText,
     requestDispatchInput,
     async openMailCompose(recipient: string, subject: string, body: string): Promise<boolean> {
-      // mailto: 预填收件人/主题/正文，经系统邮件客户端发出
-      const url = `mailto:${encodeURIComponent(recipient)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      // mailto: 预填收件人/主题/正文——WKWebView 沙箱拦截 location.href，
+      // 需用 _system 目标让系统调度邮件 App
+      const url = `mailto:${recipient}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
       try {
-        window.location.href = url;
+        window.open(url, '_system');
         return true;
       } catch {
-        return false;
+        try {
+          // 部分环境 window.open 被拦截时回落 location.href
+          window.location.href = url;
+          return true;
+        } catch {
+          return false;
+        }
       }
     },
     requestPrivacyConsent,

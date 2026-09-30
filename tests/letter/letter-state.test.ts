@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_FRAME_DELTA_MS, MAX_LETTER_TEXT_LENGTH, QUIET_DURATION_MS, REBOUND_DURATION_MS, REDUCED_UNFOLD_DURATION_MS,
   SETTLE_DURATION_MS, STAT_DURATION_MS, UNFOLD_DURATION_MS,
-  advanceLetterState, beginDraw, beginEditing, beginTuck, createLetterState,
+  advanceLetterState, beginDispatchLocalTuck, beginDispatchSend, beginDraw, beginEditing, beginTuck, cancelDispatch, cancelDispatchSend, confirmDispatchSend, createLetterState,
   endDraw, endTuck, finishEditing, movePointer, resolveCount, setPostcardText,
   type LetterState,
 } from '../../src/core/letter/letter-state';
@@ -43,8 +43,10 @@ describe('倾诉收好纯状态机', () => {
     expect(returned.state.phase).toBe('back');
     expect(returned.effects).not.toContain('save');
     const tuck = swipeToTuck(returned.state, 650, 480);
-    expect(tuck.state.phase).toBe('settle');
-    const settled = advanceUntil(tuck.state, 'quiet');
+    expect(tuck.state.phase).toBe('dispatch');
+    const localTuck = beginDispatchLocalTuck(tuck.state);
+    expect(localTuck.phase).toBe('settle');
+    const settled = advanceUntil(localTuck, 'quiet');
     expect(settled.state.phase).toBe('quiet');
     expect(settled.effects).toContain('save');
     expect(SETTLE_DURATION_MS).toBe(450);
@@ -58,10 +60,52 @@ describe('倾诉收好纯状态机', () => {
     expect(idle.effects).toContain('reset');
   });
 
+  it('上滑释放先进入寄送抉择：信纸停在展示位，未落袋未保存', () => {
+    const back = toBack(finishEditing(setPostcardText(drawnToEdit(), '抉择的信')));
+    const dispatch = swipeToTuck(back, 650, 480);
+    expect(dispatch.state.phase).toBe('dispatch');
+    expect(dispatch.state.text).toBe('抉择的信');
+    expect(dispatch.effects).not.toContain('save');
+  });
+
+  it('抉择·本地收好：走既有 settle 链路落库；抉择·寄出确认后同样入 settle 并发 requestSend', () => {
+    const back = toBack(finishEditing(setPostcardText(drawnToEdit(), '信')));
+    const dispatch = swipeToTuck(back, 650, 480).state;
+    const local = beginDispatchLocalTuck(dispatch);
+    expect(local.phase).toBe('settle');
+    const settled = advanceUntil(local, 'quiet');
+    expect(settled.effects).toContain('save');
+
+    const dispatch2 = swipeToTuck(back, 650, 480).state;
+    const sent = confirmDispatchSend(beginDispatchSend(dispatch2));
+    expect(sent.state.phase).toBe('settle');
+    expect(sent.effects).toContain('requestSend');
+  });
+
+  it('寄出输入取消回抉择，抉择取消回展示位；抉择期间触摸全隔离', () => {
+    const back = toBack(finishEditing(setPostcardText(drawnToEdit(), '信')));
+    const dispatch = swipeToTuck(back, 650, 480).state;
+    // 输入态往返
+    const input = beginDispatchSend(dispatch);
+    expect(input.phase).toBe('dispatch-send');
+    expect(cancelDispatchSend(input).phase).toBe('dispatch');
+    // 抉择取消：回展示位，文字保留
+    const returned = cancelDispatch(dispatch);
+    expect(returned.phase).toBe('back');
+    expect(returned.text).toBe('信');
+    // 抉择期间主场景手势隔离（dispatch 与 dispatch-send）
+    for (const frozen of [dispatch, input]) {
+      expect(beginDraw(frozen, 9, 100, 0)).toBe(frozen);
+      expect(beginEditing(frozen)).toBe(frozen);
+      expect(beginTuck(frozen, 9, 100, 0)).toBe(frozen);
+    }
+  });
+
   it('跳过统计的直落复位同样保留原文', () => {
     const back = toBack(finishEditing(setPostcardText(drawnToEdit(), '保留的字')));
-    const tuck = swipeToTuck(back, 650, 480, 200, 800, false);
-    const idle = advanceUntil(tuck.state, 'idle');
+    const dispatch = swipeToTuck(back, 650, 480, 200, 800, false).state;
+    expect(dispatch.phase).toBe('dispatch');
+    const idle = advanceUntil(beginDispatchLocalTuck(dispatch), 'idle');
     expect(idle.state.phase).toBe('idle');
     expect(idle.state.text).toBe('保留的字');
   });
@@ -88,7 +132,7 @@ describe('倾诉收好纯状态机', () => {
 
   it('空白信纸上滑收好同样保存', () => {
     const back = toBack(finishEditing(drawnToEdit()));
-    const settled = advanceUntil(swipeToTuck(back, 650, 480, 200, 800, false).state, 'idle');
+    const settled = advanceUntil(beginDispatchLocalTuck(swipeToTuck(back, 650, 480, 200, 800, false).state), 'idle');
     expect(settled.effects).toContain('save');
     expect(settled.effects).toContain('reset');
     expect(settled.state.phase).toBe('idle');
@@ -96,7 +140,7 @@ describe('倾诉收好纯状态机', () => {
 
   it('不满足统计节奏时收好完成后直接复位，无统计相位', () => {
     const back = toBack(finishEditing(setPostcardText(drawnToEdit(), '内容')));
-    const done = advanceUntil(swipeToTuck(back, 650, 480, 200, 800, false).state, 'idle');
+    const done = advanceUntil(beginDispatchLocalTuck(swipeToTuck(back, 650, 480, 200, 800, false).state), 'idle');
     expect(done.effects).toContain('save');
     expect(done.effects).toContain('reset');
     expect(done.effects).not.toContain('afterglow');
@@ -105,9 +149,9 @@ describe('倾诉收好纯状态机', () => {
   it('上滑达屏高 15% 或速度超 700px/s 进入收好', () => {
     const back = toBack(finishEditing(drawnToEdit()));
     const byDistance = swipeToTuck(back, 650, 480, 500, 800, false);
-    expect(byDistance.state.phase).toBe('settle');
+    expect(byDistance.state.phase).toBe('dispatch');
     const bySpeed = swipeToTuck(back, 650, 520, 100, 800, false);
-    expect(bySpeed.state.phase).toBe('settle');
+    expect(bySpeed.state.phase).toBe('dispatch');
   });
 
   it('未达阈值 300ms 回弹展示位，文字不丢失；拖拽跟手 0.85 阻尼', () => {
@@ -127,7 +171,7 @@ describe('倾诉收好纯状态机', () => {
 
   it('quiet 结束时计数缺失则跳过统计直接复位（离线降级）', () => {
     const back = toBack(finishEditing(setPostcardText(drawnToEdit(), '内容')));
-    const state = advanceUntil(swipeToTuck(back, 650, 480).state, 'quiet').state;
+    const state = advanceUntil(beginDispatchLocalTuck(swipeToTuck(back, 650, 480).state), 'quiet').state;
     const done = advanceUntil(resolveCount(state, null), 'idle');
     expect(done.state.phase).toBe('idle');
     expect(done.effects).toContain('reset');
@@ -156,7 +200,7 @@ describe('倾诉收好纯状态机', () => {
     state = advanceLetterState(state, REDUCED_UNFOLD_DURATION_MS - 100, true).state;
     expect(state.phase).toBe('edit');
     const back = advanceUntil(finishEditing(state), 'back', true).state;
-    const settling = advanceUntil(swipeToTuck(back, 650, 480, 200, 800, false).state, 'idle', true).state;
+    const settling = advanceUntil(beginDispatchLocalTuck(swipeToTuck(back, 650, 480, 200, 800, false).state), 'idle', true).state;
     expect(settling.phase).toBe('idle');
   });
 

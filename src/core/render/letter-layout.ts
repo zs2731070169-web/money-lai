@@ -24,7 +24,7 @@ export function containsPoint(rect: Rect, x: number, y: number): boolean {
   return x >= rect.left && x <= rect.left + rect.width && y >= rect.top && y <= rect.top + rect.height;
 }
 
-// topic1 信纸原图为 1024×1536，卡片按原图比例呈现。
+// linglan 信纸原图为 1024×1536，卡片按原图比例呈现。
 const LETTER_PAPER_HEIGHT_RATIO = 1536 / 1024;
 export const ENVELOPE_ASSET_ANCHORS = {
   left: 0.064,
@@ -39,6 +39,22 @@ const FOLDED_LETTER_EXPOSED_RATIO = 0.09;
 const FOLDED_LETTER_NOTCH_INSERTION_RATIO = 0.25;
 // 让折叠信纸真正落进袋腔；底边仍留 2px 安全余量，避免穿出信封轮廓。
 const ENVELOPE_BOTTOM_CLEARANCE = 2;
+
+export interface DispatchDialogLayout { panelRect: Rect; localButtonRect: Rect; sendButtonRect: Rect }
+
+/** 上滑后的寄送抉择弹层：居中暖纸面板 + 两个纵排按钮；命中与绘制共用。 */
+export function computeDispatchDialogLayout(viewportWidth: number, viewportHeight: number, safeArea: SafeAreaInsets): DispatchDialogLayout {
+  const panelWidth = Math.min(300, viewportWidth - safeArea.left - safeArea.right - 40);
+  const panelHeight = 168;
+  const left = (viewportWidth - panelWidth) / 2;
+  const top = Math.max(safeArea.top + 40, (viewportHeight - panelHeight) / 2 - 40);
+  const buttonWidth = panelWidth - 48;
+  return {
+    panelRect: { left, top, width: panelWidth, height: panelHeight },
+    localButtonRect: { left: left + 24, top: top + 72, width: buttonWidth, height: 40 },
+    sendButtonRect: { left: left + 24, top: top + 120, width: buttonWidth, height: 40 },
+  };
+}
 
 export function computeLetterSceneLayout(
   viewportWidth: number,

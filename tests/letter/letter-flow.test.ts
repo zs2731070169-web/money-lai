@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Game, shouldTriggerEnvelopeDrawOut } from '../../src/core/game';
 import { beginDraw, createLetterState, movePointer } from '../../src/core/letter/letter-state';
 import { LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, createEmptyLetterLetterState, serializeLetterLetterState, settleCompletedPostcard, type LetterBurningPersistedState } from '../../src/core/journal/journal-state';
-import { computeLetterSceneLayout, containsPoint } from '../../src/core/render/letter-layout';
+import { computeDispatchDialogLayout, computeLetterSceneLayout, containsPoint } from '../../src/core/render/letter-layout';
 import { computeMenuLayout } from '../../src/core/render/menu-layout';
 import { FakePlatform } from '../helpers/fake-platform';
 
@@ -37,14 +37,26 @@ function swipeUpToTuck(platform: FakePlatform, layout: ReturnType<typeof compute
   const cardY = layout.cardRect.top + layout.cardRect.height / 2;
   platform.touch('start', cardX, cardY); platform.now += 200;
   platform.touch('move', cardX, cardY - 180); platform.touch('end', cardX, cardY - 180);
+    clickDispatchLocal(platform);
 }
 
-/** 确认→展示位→上滑→收好动画走完进入安静等待 */
+/** 上滑释放后点弹层「仅收好到本地」，走既有收好链路 */
+function clickDispatchLocal(platform: FakePlatform): void {
+  const dialog = computeDispatchDialogLayout(platform.viewport.width, platform.viewport.height, platform.safe);
+  const x = dialog.localButtonRect.left + dialog.localButtonRect.width / 2;
+  const y = dialog.localButtonRect.top + dialog.localButtonRect.height / 2;
+  platform.touch('start', x, y); platform.touch('end', x, y);
+}
+
+/** 确认→展示位→上滑→抉择·本地收好→收好动画走完进入安静等待 */
 async function confirmThroughSettle(platform: FakePlatform, layout: ReturnType<typeof computeLetterSceneLayout>) {
   await confirmToBack(platform, layout);
   swipeUpToTuck(platform, layout);
+  clickDispatchLocal(platform);
   for (let index = 0; index < 5; index += 1) platform.tick(100);
 }
+
+
 
 /** 挂起多行输入并在主画布上记录 fillText，用于断言输入期间/之后的信纸文字渲染。 */
 class HeldInputPlatform extends FakePlatform {
@@ -80,6 +92,7 @@ describe('信封到收好的端到端链路', () => {
     await Promise.resolve(); await Promise.resolve();
     for (let index = 0; index < 4; index += 1) platform.tick(100);
     swipeUpToTuck(platform, layout);
+    clickDispatchLocal(platform);
     for (let index = 0; index < 60; index += 1) platform.tick(100);
     await Promise.resolve();
     expect(game.getTestSnapshot().phase).toBe('idle');
@@ -98,7 +111,7 @@ describe('信封到收好的端到端链路', () => {
     platform.touch('start', platform.safe.left + 30, platform.safe.top + 34);
     platform.touch('end', platform.safe.left + 30, platform.safe.top + 34);
     expect(game.getTestSnapshot().page).toBe('menu');
-    platform.touch('start', menu.closeRect.left + 22, menu.closeRect.top + 22); platform.touch('end', menu.closeRect.left + 22, menu.closeRect.top + 22);
+    platform.touch('start', menu.panelRect.left - 30, 437); platform.touch('end', menu.panelRect.left - 30, 437);
     for (let index = 0; index < 3; index += 1) platform.tick(100);
     expect(game.getTestSnapshot().page).toBe('main');
 
@@ -132,6 +145,7 @@ describe('信封到收好的端到端链路', () => {
     expect(game.getTestSnapshot().persisted.journalEntries).toHaveLength(0);
     expect(platform.countCalls).toBe(0);
     swipeUpToTuck(platform, layout);
+    clickDispatchLocal(platform);
     for (let index = 0; index < 5; index += 1) platform.tick(100);
     expect(game.getTestSnapshot().phase).toBe('quiet');
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -223,6 +237,7 @@ describe('信封到收好的端到端链路', () => {
 
     // 上滑收好：折回入袋过程中字迹随信纸呈现
     platform.touch('start', cardX, cardY); platform.now += 200; platform.touch('move', cardX, cardY - 180); platform.touch('end', cardX, cardY - 180);
+    clickDispatchLocal(platform);
     for (let index = 0; index < 2; index += 1) platform.tick(100);
     expect(game.getTestSnapshot().phase).toBe('settle');
     platform.paintedTexts.length = 0; platform.tick(100);

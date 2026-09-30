@@ -55,4 +55,4 @@
 ## 10. 根治（用户裁定：弹窗期间 BGM 也不许停）
 
 - [x] 10.1 弃用系统确认弹窗（iOS 会系统级挂起页面音频，不可绕）：`requestConfirmation` 的 web 实现改为页面内 DOM 确认层（复用 createOverlayShell/button 工厂与 COPY.cancel/confirm，遮罩点按=取消），平台契约与核心层零改动；BGM 全程无扰
-- [ ] 10.2 `npm run verify` 全绿 + 模拟器视觉验收（页面内确认卡）+ 用户听感复核（弹窗期间音乐连续）
+- [x] 10.2 `npm run verify` 全绿 + 模拟器视觉验收（页面内确认卡）+ 用户听感复核（弹窗期间音乐连续）

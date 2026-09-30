@@ -229,7 +229,7 @@ describe('背景合成接线（Game 集成）', () => {
     platform.tick(16);
     const initialAllocations = platform.offscreenCanvasCalls;
     expect(initialAllocations).toBe(5);
-    // 进入主题页并点选另一套主题（当前只有 topic1，用菜单路由模拟激活路径）
+    // 进入主题页并点选另一套主题（当前只有 linglan，用菜单路由模拟激活路径）
     const scene = computeLetterSceneLayout(platform.viewport.width, platform.viewport.height, platform.safe);
     platform.touch('start', scene.menuRect.left + 24, scene.menuRect.top + 24); platform.touch('end', scene.menuRect.left + 24, scene.menuRect.top + 24);
     const menu = computeMenuLayout(platform.viewport.width, platform.viewport.height, platform.safe);

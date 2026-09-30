@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { Game } from '../../src/core/game';
 import { LETTER_BURNING_STORAGE_KEY, PRIVACY_CONSENT_STORAGE_KEY, createEmptyLetterLetterState, serializeLetterLetterState, settleCompletedPostcard } from '../../src/core/journal/journal-state';
-import { computeLetterSceneLayout } from '../../src/core/render/letter-layout';
-import { computeFontPackageItemRects, computePageItemRects, hitJournalCell, journalClearRect } from '../../src/core/render/app-overlay-painter';
+import { computeDispatchDialogLayout, computeLetterSceneLayout } from '../../src/core/render/letter-layout';
+
+/** 上滑释放后点弹层「仅收好到本地」 */
+function clickDispatchLocal(platform: FakePlatform): void {
+  const dialog = computeDispatchDialogLayout(platform.viewport.width, platform.viewport.height, platform.safe);
+  const x = dialog.localButtonRect.left + dialog.localButtonRect.width / 2;
+  const y = dialog.localButtonRect.top + dialog.localButtonRect.height / 2;
+  platform.touch('start', x, y); platform.touch('end', x, y);
+}
+import { computeFontPackageItemRects, computePageItemRects, hitJournalCell, journalClearRect, journalDetailPaperRect } from '../../src/core/render/app-overlay-painter';
 import { computeJournalLayout } from '../../src/core/journal/journal-layout';
 import { computeMenuLayout } from '../../src/core/render/menu-layout';
 import { FONT_PACKAGES } from '../../src/core/render/letter-font';
@@ -11,9 +19,9 @@ import { FakePlatform } from '../helpers/fake-platform';
 
 function click(platform: FakePlatform, x: number, y: number) { platform.touch('start', x, y); platform.touch('end', x, y); }
 
-/** 点关闭按钮后推进时钟穿过 240ms 滑出动画（行点按不受开启动画影响，无需等待）。 */
+/** 点面板外遮罩关闭菜单（× 按钮已移除），随后推进时钟穿过 240ms 滑出动画（行点按不受开启动画影响，无需等待）。 */
 function closeMenuAndWait(platform: FakePlatform, menu: ReturnType<typeof computeMenuLayout>) {
-  click(platform, menu.closeRect.left + 22, menu.closeRect.top + 22);
+  click(platform, menu.panelRect.left - 30, platform.viewport.height / 2); // 遮罩空白处：起点在面板外即关闭
   for (let index = 0; index < 3; index += 1) platform.tick(100);
 }
 
@@ -126,6 +134,7 @@ describe('燃信菜单与页面', () => {
     expect(game.getTestSnapshot().phase).toBe('back');
     platform.touch('start', cardX, cardY); platform.now += 200;
     platform.touch('move', cardX, cardY - 180); platform.touch('end', cardX, cardY - 180);
+    clickDispatchLocal(platform);
     for (let index = 0; index < 2; index += 1) platform.tick(100);
     expect(game.getTestSnapshot().phase).toBe('settle');
     click(platform, scene.menuRect.left + 24, scene.menuRect.top + 24);
@@ -135,7 +144,7 @@ describe('燃信菜单与页面', () => {
     expect(game.getTestSnapshot().phase).toBe('quiet');
   });
 
-  it('主题页成套选择：唯一主题默认启用，菜单不再提供图鉴与双槽外观', () => {
+  it('主题页成套选择：唯一主题默认启用', () => {
     expect(LETTER_THEMES).toHaveLength(1);
     expect(LETTER_THEMES[0]).toMatchObject({ id: 'topic1', unlockMileage: 0 });
     const actions = computeMenuLayout(402, 874, { top: 62, bottom: 34, left: 0, right: 0 }).rows.map((row) => row.action);
@@ -298,8 +307,15 @@ describe('燃信菜单与页面', () => {
     const scrolled = game.getTestSnapshot();
     expect(scrolled.selectedJournalEntry).toBe(cell);
     expect(scrolled.journalDetailScroll).toBeGreaterThan(0);
-    // 近乎原地点按：关闭并重置
-    platform.touch('start', cellX, cellY - 240); platform.touch('move', cellX, cellY - 238); platform.touch('end', cellX, cellY - 238);
+    // 点在放大信纸中心：不退出，详情与滚动保留
+    const paper = journalDetailPaperRect(platform.viewport.width, platform.viewport.height, platform.safe);
+    const paperX = paper.left + paper.width / 2; const paperY = paper.top + paper.height / 2;
+    platform.touch('start', paperX, paperY); platform.touch('move', paperX, paperY + 2); platform.touch('end', paperX, paperY + 2);
+    const stillOpen = game.getTestSnapshot();
+    expect(stillOpen.selectedJournalEntry).toBe(cell);
+    expect(stillOpen.journalDetailScroll).toBeGreaterThan(0);
+    // 点在信纸以外的遮罩区（页眉带）：退出并重置
+    platform.touch('start', platform.viewport.width / 2, platform.safe.top + 30); platform.touch('end', platform.viewport.width / 2, platform.safe.top + 30);
     expect(game.getTestSnapshot().selectedJournalEntry).toBeNull();
     expect(game.getTestSnapshot().journalDetailScroll).toBe(0);
   });

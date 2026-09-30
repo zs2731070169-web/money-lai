@@ -24,8 +24,8 @@ export const REDUCED_REBOUND_DURATION_MS = 120;
 export const MAX_FRAME_DELTA_MS = 100;
 export const MAX_LETTER_TEXT_LENGTH = 400;
 
-export type LetterPhase = 'idle' | 'draw' | 'unfold' | 'edit' | 'edit-return' | 'back' | 'drag' | 'rebound' | 'settle' | 'quiet' | 'stat';
-export type LetterEffect = 'drawn' | 'requestEdit' | 'save' | 'reset';
+export type LetterPhase = 'idle' | 'draw' | 'unfold' | 'edit' | 'edit-return' | 'back' | 'drag' | 'rebound' | 'dispatch' | 'dispatch-send' | 'settle' | 'quiet' | 'stat';
+export type LetterEffect = 'drawn' | 'requestEdit' | 'requestSend' | 'save' | 'reset';
 
 export interface LetterState {
   phase: LetterPhase;
@@ -125,9 +125,40 @@ export function endTuck(
   const elapsedSeconds = Math.max(0.001, (atMs - state.gestureStartMs) / 1000);
   const speed = distance / elapsedSeconds;
   if (distance >= viewportHeight * TUCK_DISTANCE_RATIO || speed >= TUCK_SPEED_PX_PER_SECOND) {
-    return { state: { ...state, phase: 'settle', elapsedMs: 0, pointerId: null, offsetY: 0, tiltDegrees: 0, wantsStat }, effects: [] };
+    // 达阈值不直接收好：先进入寄送抉择，信纸停在展示位由弹层决定去向
+    return { state: { ...state, phase: 'dispatch', elapsedMs: 0, pointerId: null, offsetY: 0, tiltDegrees: 0, wantsStat }, effects: [] };
   }
   return { state: { ...state, phase: 'rebound', elapsedMs: 0, pointerId: null, reboundStartOffsetY: state.offsetY }, effects: [] };
+}
+
+/** 抉择·仅收好到本地：进入既有折回入袋动画（落库链路不变）。 */
+export function beginDispatchLocalTuck(state: LetterState): LetterState {
+  if (state.phase !== 'dispatch') return state;
+  return { ...state, phase: 'settle', elapsedMs: 0, pointerId: null, offsetY: 0, tiltDegrees: 0 };
+}
+
+/** 抉择·寄出这封信：进入寄送输入态（收件邮箱输入层）。 */
+export function beginDispatchSend(state: LetterState): LetterState {
+  if (state.phase !== 'dispatch') return state;
+  return { ...state, phase: 'dispatch-send', elapsedMs: 0, pointerId: null, offsetY: 0, tiltDegrees: 0 };
+}
+
+/** 寄送输入取消：回到抉择弹层。 */
+export function cancelDispatchSend(state: LetterState): LetterState {
+  if (state.phase !== 'dispatch-send') return state;
+  return { ...state, phase: 'dispatch', elapsedMs: 0 };
+}
+
+/** 寄送确认：发出 requestSend（编排层做后端记录与邮件），信纸进入折回入袋。 */
+export function confirmDispatchSend(state: LetterState): LetterUpdate {
+  if (state.phase !== 'dispatch-send') return { state, effects: [] };
+  return { state: { ...state, phase: 'settle', elapsedMs: 0, pointerId: null, offsetY: 0, tiltDegrees: 0 }, effects: ['requestSend'] };
+}
+
+/** 抉择取消：信纸回到展示位，文字保留可再编辑。 */
+export function cancelDispatch(state: LetterState): LetterState {
+  if (state.phase !== 'dispatch') return state;
+  return { ...state, phase: 'back', elapsedMs: 0 };
 }
 
 export function resolveCount(state: LetterState, count: number | null): LetterState {

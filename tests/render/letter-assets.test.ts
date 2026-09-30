@@ -68,20 +68,20 @@ function readRgbaPng(relativePath: string): RgbaPng {
 
 describe('信封本地位图契约', () => {
   it.each([
-    'assets/envelop/topic1/closed_envelope.png',
-    'assets/envelop/topic1/open_envelope_back.png',
-    'assets/envelop/topic1/open_envelope_front.png',
+    'assets/topic/linglan/closed_envelope.png',
+    'assets/topic/linglan/open_envelope_back.png',
+    'assets/topic/linglan/open_envelope_front.png',
   ])('%s 使用 1024×1024 RGBA', (path) => {
     expect(readPngMetadata(path)).toEqual({ width: 1024, height: 1024, bitDepth: 8, colorType: 6 });
   });
 
   it('信纸使用紧凑竖版 RGBA 画布（完整毛边与角饰）', () => {
-    const meta = readPngMetadata('assets/envelop/topic1/letter_paper.png');
+    const meta = readPngMetadata('assets/topic/linglan/letter_paper.png');
     expect(meta).toEqual({ width: 1024, height: 1536, bitDepth: 8, colorType: 6 });
   });
 
   it('信纸透明轮廓不携带锯齿状白色 matte', () => {
-    const { width, height, pixels } = readRgbaPng('assets/envelop/topic1/letter_paper.png');
+    const { width, height, pixels } = readRgbaPng('assets/topic/linglan/letter_paper.png');
     const alphaAt = (x: number, y: number) => pixels[(y * width + x) * 4 + 3];
     let boundaryPixels = 0;
     let nearWhiteBoundaryPixels = 0;
@@ -106,8 +106,8 @@ describe('信封本地位图契约', () => {
   });
 
   it('打开信封前后层在 V 字开口处各自保留正确透明区域', () => {
-    const back = readRgbaPng('assets/envelop/topic1/open_envelope_back.png');
-    const front = readRgbaPng('assets/envelop/topic1/open_envelope_front.png');
+    const back = readRgbaPng('assets/topic/linglan/open_envelope_back.png');
+    const front = readRgbaPng('assets/topic/linglan/open_envelope_front.png');
     const alphaAt = (image: RgbaPng, x: number, y: number) => image.pixels[(y * image.width + x) * 4 + 3];
 
     // 后片保留上方内衬，但在前袋覆盖的下方完全透明。
@@ -121,7 +121,7 @@ describe('信封本地位图契约', () => {
   });
 
   it('背景保持 1536×1024 不透明 RGB', () => {
-    expect(readPngMetadata('assets/envelop/topic1/background.png')).toEqual({ width: 1536, height: 1024, bitDepth: 8, colorType: 2 });
+    expect(readPngMetadata('assets/topic/linglan/background.png')).toEqual({ width: 1536, height: 1024, bitDepth: 8, colorType: 2 });
   });
 
   it('随包霞鹜文楷字体与 OFL 授权文件齐全', () => {

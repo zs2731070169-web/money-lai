@@ -8,17 +8,17 @@ import {
   serializeLetterLetterState, settleCompletedPostcard, type LetterBurningPersistedState,
 } from './journal/journal-state';
 import {
-  MAX_LETTER_TEXT_LENGTH, advanceLetterState, beginDraw, beginEditing, beginTuck, createLetterState,
-  endDraw, endTuck, finishEditing, movePointer, resolveCount, setPostcardText,
+  MAX_LETTER_TEXT_LENGTH, advanceLetterState, beginDispatchLocalTuck, beginDispatchSend, beginDraw, beginEditing, beginTuck,
+  cancelDispatch, cancelDispatchSend, createLetterState, endDraw, endTuck, finishEditing, movePointer, resolveCount, setPostcardText,
   type LetterEffect, type LetterState,
 } from './letter/letter-state';
 import { DEFAULT_POSTCARD_ID, chooseNextPostcardId } from './letter/postcard-catalog';
 import { FONT_PACKAGES, fontStackForPackage } from './render/letter-font';
 import { LETTER_THEMES, letterThemeById } from './render/letter-theme';
 import type { NormalizedTouchPoint, PlatformAdapter, PrimaryCanvas, TouchPhase } from './platform';
-import { computeFontPackageItemRects, computePageItemRects, hitJournalCell, journalClearRect, pageBackRect, paintAppOverlay } from './render/app-overlay-painter';
+import { computeFontPackageItemRects, computePageItemRects, hitJournalCell, journalClearRect, journalDetailPaperRect, pageBackRect, paintAppOverlay } from './render/app-overlay-painter';
 import { paintAdaptiveBackground, planAdaptiveBackground } from './render/background-composition';
-import { computeLetterSceneLayout, containsPoint } from './render/letter-layout';
+import { computeDispatchDialogLayout, computeLetterSceneLayout, containsPoint } from './render/letter-layout';
 import { paintLetterScene, type LetterSceneAssets } from './render/letter-painter';
 import { computeMenuLayout, type AppPage, type MenuAction } from './render/menu-layout';
 
@@ -36,7 +36,7 @@ const BACKGROUND_COMPOSITION_SETTLE_MS = 180;
 export interface GameOptions {
   platformAdapter: PlatformAdapter;
   privacyPolicyUrl?: string | null;
-  /** 主题 id → 该主题整套资产 URL（assets/envelop/<id>/）。 */
+  /** 主题 id → 该主题整套资产 URL（assets/topic/<id>/）。 */
   letterThemeAssetUrls?: Record<string, {
     background: string;
     closedEnvelope: string;
@@ -260,6 +260,19 @@ export class Game {
       }
       return;
     }
+    if (this.letter.phase === 'dispatch') {
+      // 抉择弹层路由：本地收好 → settle；寄出 → 输入态（2.1 前暂以提示降级）；点面板外 → 取消回展示位
+      const dialog = computeDispatchDialogLayout(viewport.width, viewport.height, safe);
+      if (containsPoint(dialog.localButtonRect, point.positionX, point.positionY)) {
+        this.letter = beginDispatchLocalTuck(this.letter);
+      } else if (containsPoint(dialog.sendButtonRect, point.positionX, point.positionY)) {
+        this.letter = beginDispatchSend(this.letter);
+        this.openDispatchInput();
+      } else if (!containsPoint(dialog.panelRect, point.positionX, point.positionY)) {
+        this.letter = cancelDispatch(this.letter);
+      }
+      return;
+    }
     if (this.letter.phase === 'drag') {
       // 释放判定上滑收好：小位移短时点按回编辑，达阈值折回入袋，未达回弹展示位
       const distance = Math.hypot(point.positionX - start.x, point.positionY - start.y);
@@ -272,6 +285,12 @@ export class Game {
       const update = endTuck(this.letter, point.pointerId, point.positionY, now, viewport.height, wantsStat);
       this.letter = update.state; this.consumeEffects(update.effects);
     }
+  }
+
+  /** 寄送输入层（任务 2.1）：当前以「暂未开放」降级返回抉择弹层，不阻断本地收好。 */
+  private openDispatchInput(): void {
+    this.letter = cancelDispatchSend(this.letter);
+    this.showNotice(COPY.unavailable);
   }
 
   private async editPostcardText(): Promise<void> {
@@ -325,7 +344,7 @@ export class Game {
       const swipeDistanceX = point.positionX - start.x;
       const swipeDistanceY = point.positionY - start.y;
       const swipedRight = swipeDistanceX >= 56 && Math.abs(swipeDistanceY) <= 48;
-      if (swipedRight || containsPoint(layout.closeRect, point.positionX, point.positionY)) {
+      if (swipedRight) {
         this.beginMenuPanelClose();
         return;
       }
@@ -347,10 +366,11 @@ export class Game {
       return;
     }
     if (this.page === 'journal') {
-      // 详情内抬手：只有近乎原地的点按才退出；长文滚动浏览（位移大）不关闭
+      // 详情内抬手：近乎原地的点按且落点在放大信纸之外才退出；点信纸本身与长文滚动都不关闭
       if (this.selectedJournalEntry !== null) {
         const detailDragDistance = Math.hypot(point.positionX - start.x, point.positionY - start.y);
-        if (detailDragDistance < 10) { this.selectedJournalEntry = null; this.journalDetailScroll = 0; }
+        const outsidePaper = !containsPoint(journalDetailPaperRect(viewport.width, viewport.height, safe), point.positionX, point.positionY);
+        if (detailDragDistance < 10 && outsidePaper) { this.selectedJournalEntry = null; this.journalDetailScroll = 0; }
         return;
       }
       // 页眉带右上「清空整本手帐」入口（空手帐时由确认流程自然拦截）

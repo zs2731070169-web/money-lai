@@ -51,8 +51,7 @@ function paintMenu(context: CanvasRenderingContext2D, layout: MenuLayout, slideR
   context.globalAlpha = 1;
   context.translate((1 - ratio) * (viewportWidth - layout.panelRect.left), 0);
   context.shadowColor = 'rgba(65,49,39,.18)'; context.shadowBlur = 26; context.fillStyle = '#F6ECDD'; context.fillRect(layout.panelRect.left, layout.panelRect.top, layout.panelRect.width, layout.panelRect.height); context.shadowColor = 'transparent';
-  context.fillStyle = INK; context.textAlign = 'center'; context.textBaseline = 'middle'; context.font = "22px ui-rounded,'PingFang SC',sans-serif"; context.fillText('×', layout.closeRect.left + layout.closeRect.width / 2, layout.closeRect.top + layout.closeRect.height / 2);
-  context.textAlign = 'left'; context.font = "16px ui-rounded,'PingFang SC',sans-serif";
+  context.fillStyle = INK; context.textAlign = 'left'; context.font = "16px ui-rounded,'PingFang SC',sans-serif";
   for (const row of layout.rows) { context.fillText(row.label, row.rect.left + 4, row.rect.top + row.rect.height / 2); context.strokeStyle = 'rgba(73,88,83,.14)'; context.beginPath(); context.moveTo(row.rect.left, row.rect.top + row.rect.height); context.lineTo(row.rect.left + row.rect.width, row.rect.top + row.rect.height); context.stroke(); }
   context.restore();
 }
@@ -70,6 +69,12 @@ function containLetter(rect: Rect, padding: number): Rect {
   let width = height * LETTER_RATIO;
   if (width > availableWidth) { width = availableWidth; height = width / LETTER_RATIO; }
   return { left: rect.left + (rect.width - width) / 2, top: rect.top + (rect.height - height) / 2, width, height };
+}
+
+/** 手帐详情放大信纸的纸面矩形：绘制与「点按信纸外退出」的命中判定共用。 */
+export function journalDetailPaperRect(width: number, height: number, safe: SafeAreaInsets): Rect {
+  const available = { left: 24, top: safe.top + 116, width: width - 48, height: Math.max(200, height - safe.top - safe.bottom - 176) };
+  return containLetter(available, 0);
 }
 
 function paintJournal(
@@ -115,8 +120,7 @@ function paintJournal(
     // 点开后放大整封信纸：文字用与书写态相同的换行/字体/混合排版，原格式清楚可读
     const entry = entries[selectedEntryIndex];
     context.fillStyle = 'rgba(65,49,39,.28)'; context.fillRect(0, safe.top + 72, width, height);
-    const available = { left: 24, top: safe.top + 116, width: width - 48, height: Math.max(200, height - safe.top - safe.bottom - 176) };
-    const paperRect = containLetter(available, 0);
+    const paperRect = journalDetailPaperRect(width, height, safe);
     context.save(); context.shadowColor = 'rgba(65,49,39,.2)'; context.shadowBlur = 22;
     paintLetterPaperAsset(context, paperRect, letterPaper);
     context.restore();

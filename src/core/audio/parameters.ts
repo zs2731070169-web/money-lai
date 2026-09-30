@@ -6,7 +6,7 @@ export const AUDIO_SYNTHESIS_PARAMETERS = {
   },
   sfxBus: { busGain: 0.6 },
   /** 抽出素材的播放增益：素材峰值约 0.38，经 sfxBus 前先衰减到接近旧合成摩擦声的响度。 */
-  envelopeDrawOut: { playbackGain: 0.65 },
+  envelopeDrawOut: { playbackGain: 0.25 },
   bgm: {
     seed: 20260926, chordDurationSeconds: 14, melodyMinIntervalSeconds: 2,
     melodyMaxIntervalSeconds: 7, melodyCeilingMidi: 60, bgmBusGain: 0.095,

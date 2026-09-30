@@ -1,8 +1,8 @@
 import { THEME_NAMES } from '../content/copy';
 
-/** 信的主题：信封 + 信纸 + 背景成套出现，一套对应 assets/envelop/&lt;id&gt;/ 目录。 */
+/** 信的主题：信封 + 信纸 + 背景成套出现，一套对应 assets/topic/&lt;id&gt;/ 目录。 */
 export interface LetterThemeDefinition {
-  /** 主题 id，同时是资产目录名（assets/envelop/&lt;id&gt;/）。 */
+  /** 主题 id，同时是资产目录名（assets/topic/&lt;id&gt;/）。 */
   id: string;
   /** 菜单与选择页显示名（文案集中在 content/copy，核心文件不散落中文）。 */
   name: string;

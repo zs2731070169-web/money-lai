@@ -1,7 +1,7 @@
 import { COPY } from '../content/copy';
 import type { LetterState } from '../letter/letter-state';
 import { EDIT_ENTER_DURATION_MS, EDIT_RETURN_DURATION_MS, REDUCED_EDIT_ENTER_DURATION_MS, REDUCED_EDIT_RETURN_DURATION_MS, REDUCED_SETTLE_DURATION_MS, REDUCED_UNFOLD_DURATION_MS, SETTLE_DURATION_MS, UNFOLD_DURATION_MS, statAlpha } from '../letter/letter-state';
-import { ENVELOPE_ASSET_ANCHORS, type LetterSceneLayout, type Rect } from './letter-layout';
+import { ENVELOPE_ASSET_ANCHORS, computeDispatchDialogLayout, type LetterSceneLayout, type Rect } from './letter-layout';
 import { BACKGROUND_SOURCE_HEIGHT as BACKGROUND_PIXEL_HEIGHT, BACKGROUND_SOURCE_WIDTH as BACKGROUND_PIXEL_WIDTH } from './background-composition';
 import { DEFAULT_FONT_PACKAGE_ID, fontStackForPackage, type FontPackageId } from './letter-font';
 
@@ -61,7 +61,7 @@ export function paintPaperBackground(
   context.globalAlpha = 1;
 }
 
-// topic1 信纸画布为 1024×1536，但纸面实际包围盒约为 (56,51)-(972,1460)。
+// linglan 信纸画布为 1024×1536，但纸面实际包围盒约为 (56,51)-(972,1460)。
 // 只取纸面内容，避免透明边距把信纸视觉上缩窄；上下半页仍从同一张原图连续取样。
 const LETTER_PAPER_SOURCE_LEFT = 56;
 const LETTER_PAPER_SOURCE_TOP = 51;
@@ -393,6 +393,36 @@ function paintActivePostcard(context: CanvasRenderingContext2D, options: LetterS
   context.restore();
 }
 
+
+/**
+ * 寄送抉择弹层：上滑释放后浮现的暖纸面板——「仅收好到本地 / 寄出这封信」。
+ * 自绘（非系统对话框）且不触碰音频，BGM 全程连续；dispatch-send 期间保持面板在底。
+ */
+function paintDispatchDialog(context: CanvasRenderingContext2D, options: LetterScenePaintOptions): void {
+  const layout = computeDispatchDialogLayout(options.width, options.height, { top: 0, bottom: 0, left: 0, right: 0 });
+  context.save();
+  context.fillStyle = 'rgba(65,49,39,.24)'; context.fillRect(0, 0, options.width, options.height);
+  context.shadowColor = 'rgba(65,49,39,.2)'; context.shadowBlur = 22;
+  context.fillStyle = '#F7EFE4'; context.fillRect(layout.panelRect.left, layout.panelRect.top, layout.panelRect.width, layout.panelRect.height);
+  context.shadowColor = 'transparent';
+  context.fillStyle = INK; context.textAlign = 'center'; context.textBaseline = 'middle';
+  context.font = "17px ui-rounded,'PingFang SC',sans-serif";
+  context.fillText(COPY.dispatchTitle, layout.panelRect.left + layout.panelRect.width / 2, layout.panelRect.top + 40);
+  for (const [rect, label, primary] of [
+    [layout.localButtonRect, COPY.dispatchLocalButton, false],
+    [layout.sendButtonRect, COPY.dispatchSendButton, true],
+  ] as const) {
+    context.save();
+    context.beginPath(); context.roundRect(rect.left, rect.top, rect.width, rect.height, 20);
+    context.fillStyle = primary ? '#8B6D59' : 'rgba(76,53,38,.08)'; context.fill();
+    context.fillStyle = primary ? '#FFF9F0' : INK;
+    context.font = "15px ui-rounded,'PingFang SC',sans-serif"; context.textAlign = 'center';
+    context.fillText(label, rect.left + rect.width / 2, rect.top + rect.height / 2);
+    context.restore();
+  }
+  context.restore();
+}
+
 export function paintLetterScene(context: CanvasRenderingContext2D, options: LetterScenePaintOptions): void {
   paintPaperBackground(context, options.width, options.height, options.assets?.background, options.assets?.backgroundComposed);
   const { state, layout } = options;
@@ -429,6 +459,7 @@ export function paintLetterScene(context: CanvasRenderingContext2D, options: Let
     context.font = "29px ui-rounded,'PingFang SC',sans-serif"; const numberWidth = context.measureText(number).width; context.font = "18px ui-rounded,'PingFang SC',sans-serif"; const suffixWidth = context.measureText(suffix).width; const start = x - (numberWidth + suffixWidth) / 2;
     context.textAlign = 'left'; context.font = "29px ui-rounded,'PingFang SC',sans-serif"; context.fillText(number, start, y + 17); context.font = "18px ui-rounded,'PingFang SC',sans-serif"; context.fillText(suffix, start + numberWidth, y + 17); context.restore();
   }
+  if (state.phase === 'dispatch' || state.phase === 'dispatch-send') paintDispatchDialog(context, options);
   context.save();
   if (options.menuGlowProgress > 0) { context.shadowColor = 'rgba(255,249,232,.9)'; context.shadowBlur = 20 * (1 - options.menuGlowProgress); }
   context.strokeStyle = INK; context.globalAlpha = 0.72; context.lineWidth = 2; context.lineCap = 'round';

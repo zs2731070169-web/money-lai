@@ -96,7 +96,7 @@ function requestInPageConfirmation(message: string): Promise<boolean> {
     const cancelButton = button(COPY.cancel); cancelButton.addEventListener('click', () => settle(false));
     const confirmButton = button(COPY.confirm, true); confirmButton.addEventListener('click', () => settle(true));
     const actions = document.createElement('div');
-    Object.assign(actions.style, { display: 'flex', justifyContent: 'center', gap: '14px' });
+    Object.assign(actions.style, { display: 'flex', justifyContent: 'center', gap: '20px' });
     actions.append(cancelButton, confirmButton);
     panel.append(messageText, actions);
     panel.addEventListener('click', (event) => event.stopPropagation());

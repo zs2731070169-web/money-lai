@@ -15,7 +15,7 @@ describe('手帐页面数据隔离', () => {
     const texts: string[] = []; const gradient = { addColorStop() {} };
     const context = new Proxy({}, { get(_target, property) { if (property === 'fillText') return (text: string) => texts.push(text); if (property === 'createLinearGradient' || property === 'createRadialGradient') return () => gradient; if (property === 'measureText') return () => ({ width: 20 }); return () => undefined; }, set: () => true }) as unknown as CanvasRenderingContext2D;
     paintAppOverlay(context, { width: 402, height: 874, safeArea: { top: 62, bottom: 34, left: 0, right: 0 }, page: 'menu', state: createEmptyLetterLetterState(), journalScroll: 0, selectedEntryIndex: null });
-    expect(texts).toEqual(['×', '心里话里程', '主题', '字体', '成就', '手帐', '隐私']);
+    expect(texts).toEqual(['心里话里程', '主题', '字体', '成就', '手帐', '隐私']);
   });
 
   it('手帐页绘制清空整本手帐入口', () => {

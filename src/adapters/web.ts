@@ -273,18 +273,61 @@ function requestDispatchInput(): Promise<string | null> {
       borderRadius: '10px 0 0 10px', outline: 'none', font: "16px ui-rounded,'PingFang SC',sans-serif",
       background: '#FFF9F0', color: '#495853', boxSizing: 'border-box',
     });
-    const domainSelect = document.createElement('select');
-    for (const domain of EMAIL_DOMAINS) {
-      const option = document.createElement('option');
-      option.value = domain; option.textContent = domain === '自定义' ? '自定义…' : `@${domain}`;
-      domainSelect.appendChild(option);
-    }
-    Object.assign(domainSelect.style, {
-      padding: '12px 10px', border: '1px solid #BCA891', borderRadius: '0 10px 10px 0',
-      font: "14px ui-rounded,'PingFang SC',sans-serif", background: '#F1E4D2', color: '#495853',
-      cursor: 'pointer', boxSizing: 'border-box', appearance: 'none', textAlign: 'center',
+    // 自绘下拉：不用 <select>（iOS 系统样式突兀），改为点击展开的暖纸选项列表
+    let selectedDomain: string = EMAIL_DOMAINS[0];
+    const dropdown = document.createElement('div');
+    Object.assign(dropdown.style, {
+      position: 'relative', minWidth: '110px', cursor: 'pointer',
     });
-    // 自定义域切换时显示额外输入框
+    const dropdownTrigger = document.createElement('div');
+    Object.assign(dropdownTrigger.style, {
+      padding: '12px 10px', border: '1px solid #BCA891', borderLeft: 'none', borderRadius: '0 10px 10px 0',
+      font: "14px ui-rounded,'PingFang SC',sans-serif", background: '#F1E4D2', color: '#495853',
+      textAlign: 'center', whiteSpace: 'nowrap', userSelect: 'none', webkitUserSelect: 'none',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', boxSizing: 'border-box',
+    });
+    const dropdownLabel = document.createTextNode(`@${selectedDomain}`);
+    const dropdownArrow = document.createElement('span');
+    dropdownArrow.textContent = '▾';
+    Object.assign(dropdownArrow.style, { fontSize: '10px', opacity: 0.5 });
+    dropdownTrigger.append(dropdownLabel, dropdownArrow);
+    const dropdownList = document.createElement('div');
+    Object.assign(dropdownList.style, {
+      position: 'absolute', top: '100%', left: '0', right: '0', zIndex: '10',
+      borderRadius: '10px', overflow: 'hidden', boxShadow: '0 8px 24px rgba(74,55,42,.18)',
+      background: '#F7EFE4', display: 'none',
+    });
+    let dropdownOpen = false;
+    const toggleDropdown = () => {
+      dropdownOpen = !dropdownOpen;
+      dropdownList.style.display = dropdownOpen ? 'block' : 'none';
+    };
+    dropdownTrigger.addEventListener('click', (event) => { event.stopPropagation(); toggleDropdown(); });
+    const domainItems = new Map<string, HTMLElement>();
+    for (const domain of EMAIL_DOMAINS) {
+      const item = document.createElement('div');
+      item.textContent = domain === '自定义' ? '自定义…' : `@${domain}`;
+      Object.assign(item.style, {
+        padding: '10px 14px', font: "14px ui-rounded,'PingFang SC',sans-serif",
+        color: '#495853', textAlign: 'center', userSelect: 'none', webkitUserSelect: 'none',
+        borderBottom: '1px solid rgba(188,168,145,.3)',
+      });
+      item.addEventListener('click', (event) => {
+        event.stopPropagation();
+        selectedDomain = domain;
+        dropdownLabel.textContent = domain === '自定义' ? '自定义…' : `@${domain}`;
+        customDomainRow.style.display = domain === '自定义' ? 'block' : 'none';
+        if (domain !== '自定义') customDomainInput.value = '';
+        toggleDropdown();
+        refreshConfirm();
+      });
+      domainItems.set(domain, item);
+      dropdownList.appendChild(item);
+    }
+    dropdown.append(dropdownTrigger, dropdownList);
+    // 点外部收起下拉
+    document.addEventListener('click', () => { if (dropdownOpen) toggleDropdown(); });
+    // 自定义域输入框
     const customDomainRow = document.createElement('div');
     customDomainRow.style.cssText = 'display:none; margin:-12px 0 16px;';
     const customDomainInput = document.createElement('input');
@@ -295,11 +338,7 @@ function requestDispatchInput(): Promise<string | null> {
       color: '#495853', boxSizing: 'border-box',
     });
     customDomainRow.appendChild(customDomainInput);
-    domainSelect.addEventListener('change', () => {
-      customDomainRow.style.display = domainSelect.value === '自定义' ? 'block' : 'none';
-      if (domainSelect.value !== '自定义') customDomainInput.value = '';
-    });
-    inputRow.append(prefixInput, domainSelect);
+    inputRow.append(prefixInput, dropdown);
     // 确认/取消
     let settled = false;
     const finish = (result: string | null) => {
@@ -310,9 +349,9 @@ function requestDispatchInput(): Promise<string | null> {
     const readFullAddress = (): string | null => {
       const prefix = prefixInput.value.trim();
       if (!isValidEmailPrefix(prefix)) return null;
-      const domain = domainSelect.value === '自定义'
+      const domain = selectedDomain === '自定义'
         ? customDomainInput.value.trim().replace(/^@/, '')
-        : domainSelect.value;
+        : selectedDomain;
       if (!domain || !/^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$/.test(domain)) return null;
       return `${prefix}@${domain}`;
     };
@@ -322,7 +361,6 @@ function requestDispatchInput(): Promise<string | null> {
     Object.assign(actions.style, { display: 'flex', justifyContent: 'center', gap: '14px' });
     const refreshConfirm = () => { confirmButton.disabled = readFullAddress() === null; };
     prefixInput.addEventListener('input', refreshConfirm);
-    domainSelect.addEventListener('change', refreshConfirm);
     customDomainInput.addEventListener('input', refreshConfirm);
     confirmButton.addEventListener('click', () => { finish(readFullAddress()); });
     cancelButton.addEventListener('click', () => finish(null));

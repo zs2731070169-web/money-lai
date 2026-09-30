@@ -245,6 +245,98 @@ async function shareTemporaryPng(fileName: string, base64Data: string, title: st
   } catch { return 'failed'; }
 }
 
+
+/** 寄送输入面板：收件人邮箱 = 前缀输入 + 类型下拉，暖纸样式与 App 基调一致。 */
+const EMAIL_DOMAINS = ['qq.com', '163.com', '126.com', 'gmail.com', 'outlook.com', 'icloud.com', '自定义'] as const;
+
+function isValidEmailPrefix(prefix: string): boolean {
+  return /^[a-zA-Z0-9][a-zA-Z0-9._%-]*$/.test(prefix) && prefix.length >= 2;
+}
+
+function requestDispatchInput(): Promise<string | null> {
+  return new Promise((resolve) => {
+    const shell = createOverlayShell(false);
+    const panel = createPaperPanel();
+    Object.assign(panel.style, { width: 'min(340px, 100%)', textAlign: 'center' });
+    const title = document.createElement('div');
+    title.textContent = COPY.dispatchInputTitle;
+    Object.assign(title.style, { font: "18px/1.4 ui-rounded,'PingFang SC',sans-serif", marginBottom: '20px' });
+    // 前缀输入 + 类型下拉并排
+    const inputRow = document.createElement('div');
+    Object.assign(inputRow.style, { display: 'flex', gap: '0', marginBottom: '16px' });
+    const prefixInput = document.createElement('input');
+    prefixInput.type = 'text';
+    prefixInput.placeholder = '邮箱前缀';
+    prefixInput.autocapitalize = 'none'; prefixInput.spellcheck = false;
+    Object.assign(prefixInput.style, {
+      flex: '1', minWidth: '0', padding: '12px 14px', border: '1px solid #BCA891', borderRight: 'none',
+      borderRadius: '10px 0 0 10px', outline: 'none', font: "16px ui-rounded,'PingFang SC',sans-serif",
+      background: '#FFF9F0', color: '#495853', boxSizing: 'border-box',
+    });
+    const domainSelect = document.createElement('select');
+    for (const domain of EMAIL_DOMAINS) {
+      const option = document.createElement('option');
+      option.value = domain; option.textContent = domain === '自定义' ? '自定义…' : `@${domain}`;
+      domainSelect.appendChild(option);
+    }
+    Object.assign(domainSelect.style, {
+      padding: '12px 10px', border: '1px solid #BCA891', borderRadius: '0 10px 10px 0',
+      font: "14px ui-rounded,'PingFang SC',sans-serif", background: '#F1E4D2', color: '#495853',
+      cursor: 'pointer', boxSizing: 'border-box', appearance: 'none', textAlign: 'center',
+    });
+    // 自定义域切换时显示额外输入框
+    const customDomainRow = document.createElement('div');
+    customDomainRow.style.cssText = 'display:none; margin:-12px 0 16px;';
+    const customDomainInput = document.createElement('input');
+    customDomainInput.type = 'text'; customDomainInput.placeholder = '输入完整域名（如 example.com）';
+    Object.assign(customDomainInput.style, {
+      width: '100%', padding: '12px 14px', border: '1px solid #BCA891', borderRadius: '10px',
+      outline: 'none', font: "16px ui-rounded,'PingFang SC',sans-serif", background: '#FFF9F0',
+      color: '#495853', boxSizing: 'border-box',
+    });
+    customDomainRow.appendChild(customDomainInput);
+    domainSelect.addEventListener('change', () => {
+      customDomainRow.style.display = domainSelect.value === '自定义' ? 'block' : 'none';
+      if (domainSelect.value !== '自定义') customDomainInput.value = '';
+    });
+    inputRow.append(prefixInput, domainSelect);
+    // 确认/取消
+    let settled = false;
+    const finish = (result: string | null) => {
+      if (settled) return; settled = true;
+      prefixInput.blur(); customDomainInput.blur(); shell.remove();
+      resolve(result);
+    };
+    const readFullAddress = (): string | null => {
+      const prefix = prefixInput.value.trim();
+      if (!isValidEmailPrefix(prefix)) return null;
+      const domain = domainSelect.value === '自定义'
+        ? customDomainInput.value.trim().replace(/^@/, '')
+        : domainSelect.value;
+      if (!domain || !/^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$/.test(domain)) return null;
+      return `${prefix}@${domain}`;
+    };
+    const confirmButton = button(COPY.dispatchInputConfirm, true);
+    const cancelButton = button(COPY.cancel);
+    const actions = document.createElement('div');
+    Object.assign(actions.style, { display: 'flex', justifyContent: 'center', gap: '14px' });
+    const refreshConfirm = () => { confirmButton.disabled = readFullAddress() === null; };
+    prefixInput.addEventListener('input', refreshConfirm);
+    domainSelect.addEventListener('change', refreshConfirm);
+    customDomainInput.addEventListener('input', refreshConfirm);
+    confirmButton.addEventListener('click', () => { finish(readFullAddress()); });
+    cancelButton.addEventListener('click', () => finish(null));
+    prefixInput.addEventListener('keydown', (event) => { if (event.key === 'Escape') finish(null); });
+    actions.append(cancelButton, confirmButton);
+    panel.append(title, inputRow, customDomainRow, actions);
+    shell.addEventListener('click', (event) => { if (event.target === shell) finish(null); });
+    shell.append(panel);
+    document.body.append(shell);
+    prefixInput.focus();
+    refreshConfirm();
+  });
+}
+
 export function createWebPlatformAdapter(): PlatformAdapter {
   let cachedCanvas: PrimaryCanvas | null = null;
   const touchListeners = new Set<(phase: TouchPhase, point: NormalizedTouchPoint) => void>();
@@ -275,6 +367,7 @@ export function createWebPlatformAdapter(): PlatformAdapter {
     readPersistentValue(key) { return storage.read(key); },
     writePersistentValue(key, value) { return storage.write(key, value); },
     requestMultilineText,
+    requestDispatchInput,
     requestPrivacyConsent,
     requestConfirmation(message) { return requestInPageConfirmation(message); },
     openExternalUrl,

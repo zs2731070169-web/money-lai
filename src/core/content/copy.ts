@@ -24,6 +24,8 @@ export const COPY = {
   dispatchLocalButton: '存入自己的手帐',
   dispatchSendButton: '寄出这封信',
   dispatchCancelButton: '取消',
+  dispatchInputTitle: '寄给谁？',
+  dispatchInputConfirm: '寄出',
   clearConfirm: '确认清空手帐？',
   cancel: '取消',
   confirm: '确认',

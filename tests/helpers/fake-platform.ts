@@ -55,6 +55,10 @@ export class FakePlatform implements PlatformAdapter {
   async readPersistentValue(key: string): Promise<string | null> { this.reads.push(key); return this.storageReadsSucceed ? this.storage.get(key) ?? null : null; }
   async writePersistentValue(key: string, value: string): Promise<boolean> { this.writes.push({ key, value }); if (this.storageWritesSucceed) this.storage.set(key, value); return this.storageWritesSucceed; }
   async requestMultilineText(request: TextInputRequest): Promise<TextInputResult> { this.textRequests.push(request); return this.textResult; }
+  dispatchInputResult: string | null = 'friend@qq.com';
+  readonly dispatchInputRequests = 0;
+  dispatchRequests = 0;
+  async requestDispatchInput(): Promise<string | null> { this.dispatchRequests += 1; return this.dispatchInputResult; }
   async requestPrivacyConsent(): Promise<boolean> { this.consentRequests += 1; return this.consent; }
   async requestConfirmation(): Promise<boolean> { return this.confirmation; }
   async openExternalUrl(url: string): Promise<boolean> { this.openedUrls.push(url); return true; }

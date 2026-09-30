@@ -35,6 +35,8 @@ export interface PlatformAdapter {
   readPersistentValue(key: string): Promise<string | null>;
   writePersistentValue(key: string, value: string): Promise<boolean>;
   requestMultilineText(request: TextInputRequest): Promise<TextInputResult>;
+  /** 寄送输入：收件人邮箱（前缀+类型下拉），返回完整地址或 null（取消）。 */
+  requestDispatchInput(): Promise<string | null>;
   requestPrivacyConsent(policyUrl: string | null): Promise<boolean>;
   requestConfirmation(message: string): Promise<boolean>;
   openExternalUrl(url: string): Promise<boolean>;

@@ -9,7 +9,7 @@ import {
 } from './journal/journal-state';
 import {
   MAX_LETTER_TEXT_LENGTH, advanceLetterState, beginDispatchLocalTuck, beginDispatchSend, beginDraw, beginEditing, beginTuck,
-  cancelDispatch, cancelDispatchSend, createLetterState, endDraw, endTuck, finishEditing, movePointer, resolveCount, setPostcardText,
+  cancelDispatch, cancelDispatchSend, confirmDispatchSend, createLetterState, endDraw, endTuck, finishEditing, movePointer, resolveCount, setPostcardText,
   type LetterEffect, type LetterState,
 } from './letter/letter-state';
 import { DEFAULT_POSTCARD_ID, chooseNextPostcardId } from './letter/postcard-catalog';
@@ -289,9 +289,18 @@ export class Game {
   }
 
   /** 寄送输入层（任务 2.1）：当前以「暂未开放」降级返回抉择弹层，不阻断本地收好。 */
-  private openDispatchInput(): void {
-    this.letter = cancelDispatchSend(this.letter);
-    this.showNotice(COPY.unavailable);
+  /** 寄送输入层：DOM 面板（前缀+下拉），确认后进 settle 并发 requestSend，取消回抉择。 */
+  private async openDispatchInput(): Promise<void> {
+    if (this.letter.phase !== 'dispatch-send') return;
+    const recipient = await this.platform.requestDispatchInput();
+    if (recipient === null) {
+      this.letter = cancelDispatchSend(this.letter);
+      return;
+    }
+    // 后端记录与邮件发出将在任务 2.3 接入；当前先走 settle 链路
+    const update = confirmDispatchSend(this.letter);
+    this.letter = update.state;
+    this.consumeEffects(update.effects);
   }
 
   private async editPostcardText(): Promise<void> {
